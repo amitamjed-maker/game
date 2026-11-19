@@ -1,0 +1,28 @@
+{
+  "name": "lukochuri",
+  "version": "1.0.0",
+  "private": true,
+  "description": "গ্রামের লুকোচুরি - 3D online hide and seek",
+  "author": "Gaming with Tamjed",
+  "main": "electron/main.js",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "devDependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "firebase": "^10.14.1",
+    "three": "^0.160.0",
+    "vite": "^5.4.10"
+  },
+  "build": {
+    "appId": "com.tamjed.lukochuri",
+    "productName": "Lukochuri",
+    "directories": { "output": "release" },
+    "files": ["dist/**", "electron/**", "package.json"],
+    "mac": { "category": "public.app-category.games", "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }] },
+    "win": { "target": ["nsis"] }
+  }
+}
