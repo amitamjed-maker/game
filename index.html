@@ -47,6 +47,9 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #toast{position:fixed;left:50%;bottom:22vh;transform:translateX(-50%);background:#000c;padding:.6em 1.1em;border-radius:99px;z-index:9;opacity:0;transition:opacity .2s;pointer-events:none;text-align:center}
 #toast.on{opacity:1}
 #inv{position:fixed;top:64px;right:10px;background:#16301f;border:2px solid #f2b134;border-radius:14px;padding:12px;z-index:8;display:grid;gap:8px;max-width:70vw}
+#morph{position:fixed;right:20px;bottom:34px;width:96px;height:96px;border-radius:50%;font-size:1.3rem;z-index:4}
+#skins{position:fixed;right:10px;bottom:140px;width:min(330px,92vw);display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#16301fee;padding:10px;border-radius:16px;z-index:6}
+#sig{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);font-size:3.4rem;font-weight:800;color:#f2b134;text-shadow:0 2px 12px #000;z-index:7;pointer-events:none}
 </style>
 </head>
 <body>
@@ -58,6 +61,9 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 </div>
 <div id="joy" hidden><i id="knob"></i></div>
 <button id="catch" hidden>ধরো</button>
+<button id="morph" class="y" hidden>রূপ</button>
+<div id="skins" hidden></div>
+<div id="sig" hidden>ডু!</div>
 
 <div id="lobby" hidden>
   <div id="pl"></div>
