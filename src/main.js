@@ -112,6 +112,7 @@ function leaveRoom() {
 
 
 /* ---------- টেক্সট চ্যাট + ভয়েস চ্যাট (WebRTC, সিগন্যালিং Firebase দিয়ে) ---------- */
+const SPK = {}; let spkT = 0;
 let chatN = 0, vcMine = false, vcMuted = false, vcStream = null, vcPeers = {}, vcSet = {}, vcUn = null;
 const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' }] };
 function chatAdd(m) {
@@ -138,11 +139,11 @@ function voicePC(p) {
   vcPeers[p] = o;
   vcStream.getTracks().forEach(t => pc.addTrack(t, vcStream));
   pc.onicecandidate = e => e.candidate && sig(p, { c: e.candidate.toJSON() });
-  pc.ontrack = e => { if (!o.au) { o.au = new Audio(); o.au.autoplay = true; o.au.setAttribute('playsinline', ''); document.body.appendChild(o.au); } o.au.srcObject = e.streams[0]; o.au.play().catch(() => { }); };
+  pc.ontrack = e => { if (!o.au) { o.au = new Audio(); o.au.autoplay = true; o.au.setAttribute('playsinline', ''); document.body.appendChild(o.au); } o.au.srcObject = e.streams[0]; o.au.play().catch(() => { }); try { const a = audio(), an = a.createAnalyser(); an.fftSize = 256; a.createMediaStreamSource(e.streams[0]).connect(an); o.an = an; } catch (er) { } };
   pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' && vcPeers[p] === o) { voiceDrop(p); setTimeout(voiceSync, 1500); } };
   return o;
 }
-function voiceDrop(p) { const o = vcPeers[p]; if (!o) return; try { o.pc.close(); } catch (e) { } if (o.au) { o.au.srcObject = null; o.au.remove(); } delete vcPeers[p]; }
+function voiceDrop(p) { const o = vcPeers[p]; if (!o) return; if (SPK[p]) { if (SPK[p].parent) SPK[p].parent.remove(SPK[p]); delete SPK[p]; } try { o.pc.close(); } catch (e) { } if (o.au) { o.au.srcObject = null; o.au.remove(); } delete vcPeers[p]; }
 function voiceSync() {
   for (const p in vcPeers) if (!vcMine || !vcSet[p]) voiceDrop(p);
   if (!vcMine) return;
@@ -840,7 +841,7 @@ function step(dt) {
   let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - jz;
   let r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + jx;
   const l = Math.hypot(f, r); if (l < .08) return false;
-  if (acts[uid] === 'sit' || acts[uid] === 'sleep') setAct(null);
+  if (['sit', 'sleep', 'eat', 'dance'].includes(acts[uid])) setAct(null);
   if (l > 1) { f /= l; r /= l; }
   const sp = (iAmSeeker() && state.phase === 'seek' ? 6 : 5.2) * ({ horse: 1.7, cow: 1.25, swim: .55 }[acts[uid]] || 1), sn = Math.sin(camYaw), cs = Math.cos(camYaw);
   const dx = -sn * f + cs * r, dz = -cs * f - sn * r;
@@ -1076,6 +1077,20 @@ let acts = {}, ACT = {}, SWIM = false, propFrom = null, propT = 0;
 const seenFx = new Set(), FLO = [], PRJ = [], TXC = {}, zzT = {};
 const nm = u => (players[u] && players[u].name) || 'কেউ';
 const snd = (f, t = 'square', d = .12) => { try { audio(); beep(0, .5, f, t, d); } catch (e) { } };
+function noiseHit(dur, vol, hp) { // ছোট আওয়াজের ঝাপটা (চটাস, ধপ, খুর)
+  try {
+    const a = audio(), n = Math.floor(a.sampleRate * dur), b = a.createBuffer(1, n, a.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+    const sr = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+    sr.buffer = b; f.type = 'highpass'; f.frequency.value = hp; g.gain.value = vol; sr.connect(f); f.connect(g); g.connect(a.destination); sr.start();
+  } catch (e) { }
+}
+const sfx = {
+  slap: () => { noiseHit(.09, .9, 1800); beep(0, .3, 260, 'square', .08); },
+  thud: () => { noiseHit(.18, .7, 150); beep(0, .5, 90, 'sine', .25); },
+  kiss: () => { beep(0, .3, 1500, 'sine', .06); setTimeout(() => beep(0, .25, 1000, 'sine', .07), 90); },
+  hoof: () => { noiseHit(.05, .5, 500); setTimeout(() => noiseHit(.05, .4, 400), 110); }
+};
 function sprTex(t) {
   if (TXC[t]) return TXC[t];
   const wide = t.length > 4 || /[A-Za-z]/.test(t), c = document.createElement('canvas'), w = wide ? 256 : 128; c.width = w; c.height = 128;
@@ -1099,7 +1114,7 @@ function mkMount(k) {
 }
 function syncExtra(g, d, pz) {
   d.pz = pz; if (d.ex) { g.remove(d.ex); d.ex = null; }
-  if (pz === 'sit') d.ex = mk([[.55, .4, .5, 0x8a5a2b, 0, .2, -.05]]);
+  if (pz === 'sit' || pz === 'eat') d.ex = mk([[.55, .4, .5, 0x8a5a2b, 0, .2, -.05]]);
   else if (pz === 'sleep') d.ex = mk([[1.1, .1, 2.3, 0xc0392b, 0, .05, -.95], [.7, .14, .4, 0xf5f5f5, 0, .17, -1.75]]);
   else if (pz === 'cow' || pz === 'horse') d.ex = mkMount(pz);
   if (d.ex) g.add(d.ex);
@@ -1109,7 +1124,8 @@ function applyFun(u, g, d) {
   const T = performance.now(), a = ACT[u], pz = acts[u], h = d.hum;
   if (d.pz !== pz) syncExtra(g, d, pz);
   h.position.set(0, 0, 0); h.rotation.set(0, 0, 0); g.position.y = 0;
-  if (pz === 'sit') { h.position.y = -.42; d.legL.rotation.x = d.legR.rotation.x = -1.45; d.armL.rotation.x = d.armR.rotation.x = -.5; }
+  if (pz === 'sit' || pz === 'eat') { h.position.y = -.42; d.legL.rotation.x = d.legR.rotation.x = -1.45; d.armL.rotation.x = d.armR.rotation.x = -.5; if (pz === 'eat') d.armR.rotation.x = -1.3 - Math.abs(Math.sin(T / 350)) * .6; }
+  else if (pz === 'dance') { const w = Math.sin(T / 160); h.position.y = Math.abs(w) * .18; h.rotation.y = w * .5; d.armL.rotation.x = -2.6 + w * .5; d.armR.rotation.x = -2.6 - w * .5; d.legL.rotation.x = w * .6; d.legR.rotation.x = -w * .6; }
   else if (pz === 'sleep') { h.rotation.x = -Math.PI / 2; h.position.y = .3; d.legL.rotation.x = d.legR.rotation.x = d.armL.rotation.x = d.armR.rotation.x = 0; }
   else if ((pz === 'cow' || pz === 'horse') && d.ex) {
     const off = d.ex.userData.off; g.position.y = off; d.ex.position.y = -off; d.legL.rotation.set(-.35, 0, -.5); d.legR.rotation.set(-.35, 0, .5); d.armL.rotation.x = d.armR.rotation.x = -.9;
@@ -1138,7 +1154,19 @@ function applyFun(u, g, d) {
     }
   }
 }
+function speakTick(dt) { // যে বন্ধু কথা বলছে তার মাথার ওপর 🎙️ দেখায়
+  spkT -= dt; if (spkT > 0) return; spkT = .15;
+  for (const p in vcPeers) {
+    const o = vcPeers[p], g = av[p]; if (!o.an || !g) continue;
+    const b = o.an.buf || (o.an.buf = new Uint8Array(o.an.fftSize)); o.an.getByteTimeDomainData(b);
+    let m = 0; for (let i = 0; i < b.length; i++) m = Math.max(m, Math.abs(b[i] - 128));
+    const on = m / 128 > .06; let sp = SPK[p];
+    if (on && !sp) { sp = SPK[p] = mkSpr('🎙️', .8); sp.position.set(0, 3.05, 0); }
+    if (sp) { if (sp.parent !== g) g.add(sp); sp.visible = on; }
+  }
+}
 function funTick(dt) {
+  speakTick(dt);
   const T = performance.now();
   for (const u in ACT) {
     const a = ACT[u], k = (T - a.t0) / 1000;
@@ -1151,7 +1179,9 @@ function funTick(dt) {
     o.vy -= o.g * dt; o.sp.position.x += o.vx * dt; o.sp.position.y += o.vy * dt; o.sp.position.z += o.vz * dt;
     if (o.bounce && o.sp.position.y < .15) { o.sp.position.y = .15; o.vy = Math.abs(o.vy) * .35; o.vx *= .6; o.vz *= .6; }
   }
-  for (const u in acts) if ((acts[u] === 'sleep' || acts[u] === 'swim') && av[u] && ((zzT[u] = (zzT[u] || 0) - dt) < 0)) { zzT[u] = acts[u] === 'sleep' ? 1.8 : .9; flo(u, acts[u] === 'sleep' ? '💤' : '💦', 1.6, .8, acts[u] === 'sleep' ? 1.2 : 1.1); }
+  const FLT = { sleep: ['💤', 1.8, 1.2], swim: ['💦', .9, 1.1], dance: ['🎵', 1.1, 2.2], eat: ['🍚', 2.2, 1.6] }; // কাজ → [ভাসমান ইমোজি, বিরতি, উচ্চতা]
+  for (const u in acts) { const fl = FLT[acts[u]]; if (fl && av[u] && ((zzT[u] = (zzT[u] || 0) - dt) < 0)) { zzT[u] = fl[1]; flo(u, fl[0], 1.6, .8, fl[2]); } }
+  hoofT -= dt; if (hoofT < 0 && acts[uid] === 'horse' && av[uid] && av[uid].userData.sp > 2) { hoofT = .32; sfx.hoof(); }
   if (!room) return;
   if (state.phase !== 'lobby' && acts[uid]) { if (acts[uid] === 'swim') leaveSwim(); setAct(null); }
   if (acts[uid] === 'swim') { const dx = me.x - PX, dz = me.z - PZ, d = Math.hypot(dx, dz); if (d > PR - .6) { me.x = PX + dx / d * (PR - .6); me.z = PZ + dz / d * (PR - .6); } }
@@ -1172,18 +1202,44 @@ function toggleAct(k) {
   }
   setAct(k);
 }
+let tapDown = null, pickU = null, pickT = 0;
+cv.addEventListener('pointerdown', e => { tapDown = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+cv.addEventListener('pointerup', e => { // লবিতে কোনো খেলোয়াড়ের ওপর ট্যাপ করলে তাকেই লক্ষ্য করা হয় (আবার ট্যাপ করলে বাতিল)
+  const d = tapDown; tapDown = null;
+  if (!d || !room || state.phase !== 'lobby' || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10 || performance.now() - d.t > 350) return;
+  const rc = new THREE.Raycaster(), r = cv.getBoundingClientRect();
+  rc.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height * 2 - 1)), cam);
+  let best = null, bd = 1e9;
+  for (const u in av) { if (u === uid || !av[u].visible) continue; const h = rc.intersectObject(av[u], true)[0]; if (h && h.distance < bd) { bd = h.distance; best = u; } }
+  if (!best) return;
+  if (pickU === best) { pickU = null; toast('লক্ষ্য বাতিল'); return; }
+  pickU = best; pickT = performance.now(); flo(best, '🎯', 4, .9, 3);
+  toast('🎯 ' + nm(best) + ' কে বেছে নেওয়া হয়েছে');
+});
+function target(md) { // বেছে নেওয়া জন থাকলে (১৫ সেকেন্ড) তাকেই, নইলে সবচেয়ে কাছের জন
+  if (pickU && performance.now() - pickT < 15000 && players[pickU] && av[pickU] && av[pickU].visible) { const g = av[pickU]; return Math.hypot(g.position.x - me.x, g.position.z - me.z) <= md ? pickU : null; }
+  return nearest(md);
+}
 function nearest(md) { let b = null, bd = md; for (const u in players) { if (u === uid) continue; const g = av[u]; if (!g || !g.visible) continue; const d = Math.hypot(g.position.x - me.x, g.position.z - me.z); if (d < bd) { bd = d; b = u; } } return b; }
 function fxSend(o) { if (!room) return; const r = push(ref(db, `rooms/${room}/fx`), Object.assign({ f: uid, t: now() }, o)); setTimeout(() => remove(r), 9000); }
+const ATK_GAP = 4000, HIT_GAP = 6000; // নিজের পরপর আক্রমণের ফাঁক / একই জনকে আবার মারার ফাঁক (মিলিসেকেন্ড)
+let atkAt = 0, hoofT = 0; const hitAt = {};
 function doFun(k) {
   if (!room) return;
   if (state.phase !== 'lobby') { toast('এসব মজা অপেক্ষা-ঘরে (লবিতে) করা যায়'); return; }
   if (ACT[uid] && ACT[uid].lock) return;
   if (ACT[uid] && ACT[uid].k === 'kneel') { toast('উত্তরের অপেক্ষা করুন…'); return; }
   if (k === 'love' || k === 'laugh' || k === 'like') return fxSend({ k: 'emo', e: { love: '❤️', laugh: '😂', like: '👍' }[k] });
-  if (k === 'hi') return fxSend({ k: 'hi', to: nearest(10) || '' });
+  if (k === 'hi') return fxSend({ k: 'hi', to: target(10) || '' });
   if (k === 'slap' || k === 'lathi' || k === 'prop') {
-    const t = nearest(3.2); if (!t) { toast('আগে কারো কাছে যান (৩ মিটারের মধ্যে)'); return; }
+    const t = target(3.2); if (!t) { toast('আগে কারো কাছে যান (৩ মিটারের মধ্যে)'); return; }
     if (ACT[t] && ACT[t].lock) { toast(nm(t) + ' এখন ব্যস্ত'); return; }
+    if (k !== 'prop') {
+      const T = performance.now();
+      if (T - atkAt < ATK_GAP) { toast('একটু অপেক্ষা করুন…'); return; }
+      if (hitAt[t] && T - hitAt[t] < HIT_GAP) { toast(nm(t) + ' কে এইমাত্র মারা হয়েছে, একটু পরে আবার'); return; }
+      atkAt = T;
+    }
     if (acts[uid]) { if (acts[uid] === 'swim') leaveSwim(); setAct(null); }
     me.ry = Math.atan2(av[t].position.x - me.x, av[t].position.z - me.z); sendPos(true);
     return fxSend({ k, to: t });
@@ -1193,16 +1249,19 @@ function doFun(k) {
 function answer(ok) { clearTimeout(propT); $('propBox').hidden = true; if (!propFrom) return; const f = propFrom; propFrom = null; fxSend({ k: 'ans', f: uid, to: f, ok }); }
 function fxHandle(v) {
   const f = v.f, to = v.to, A = (u, o) => { dropAct(u); return ACT[u] = Object.assign({ t0: performance.now() }, o); };
+  if ((v.k === 'slap' || v.k === 'lathi') && hitAt[to] && performance.now() - hitAt[to] < HIT_GAP) return;
+  if (v.k === 'slap' || v.k === 'lathi') hitAt[to] = performance.now();
   const hit = (u, from, o) => {
+    hitAt[u] = performance.now();
     const a = A(u, Object.assign({ lock: u === uid }, o));
     if (u === uid && o.dist && av[from]) { const dx = me.x - av[from].position.x, dz = me.z - av[from].position.z, l = Math.hypot(dx, dz) || 1; a.vx = dx / l * o.dist; a.vz = dz / l * o.dist; }
   };
   if (v.k === 'emo') flo(f, v.e, 2.2, 1.2);
   else if (v.k === 'hi') { flo(f, 'Hi! 👋', 2.4, 1.3); if (to) { flo(to, '💌', 2.4, 1.1); if (to === uid) toast(nm(f) + ' আপনাকে Hi পাঠিয়েছে 💌'); } }
-  else if (v.k === 'slap') { A(f, { k: 'swing', dur: .8 }); setTimeout(() => { hit(to, f, { k: 'dizzy', dur: 2.8 }); flo(to, '💫', 2.8, 1.2, 2.3); snd(150); }, 280); }
+  else if (v.k === 'slap') { A(f, { k: 'swing', dur: .8 }); setTimeout(() => { hit(to, f, { k: 'dizzy', dur: 2.8 }); flo(to, '💫', 2.8, 1.2, 2.3); sfx.slap(); }, 280); }
   else if (v.k === 'lathi') {
     const a = A(f, { k: 'stick', dur: .9 }), d = av[f] && av[f].userData; if (d) { const m = mk([[.09, 1.3, .09, 0x7a4a24, 0, -.75, .1]]); d.armR.add(m); a.stick = m; }
-    setTimeout(() => { hit(to, f, { k: 'fly', D: 1, lie: 1.5, H: 1.8, dur: 2.9, dist: 5.5 }); flo(to, '💥', 1.5, 1.4, 2); snd(110, 'sawtooth', .2); }, 380);
+    setTimeout(() => { hit(to, f, { k: 'fly', D: 1, lie: 1.5, H: 1.8, dur: 2.9, dist: 5.5 }); flo(to, '💥', 1.5, 1.4, 2); sfx.thud(); }, 380);
   } else if (v.k === 'prop') {
     const a = A(f, { k: 'kneel', dur: 25 }); a.spr = flo(f, '💍', 25, 1, 1.4);
     if (to === uid) { propFrom = f; $('propTxt').textContent = nm(f) + ' তোমাকে প্রপোজ করেছে 💍❤️ — রাজি?'; $('propBox').hidden = false; clearTimeout(propT); propT = setTimeout(() => answer(false), 20000); }
@@ -1212,7 +1271,7 @@ function fxHandle(v) {
     dropAct(to);
     if (v.ok) {
       A(to, { k: 'carry', with: f, dur: 4.2, lock: to === uid }); A(f, { k: 'carried', with: to, dur: 4.2, lock: f === uid });
-      let n = 0; const iv = setInterval(() => { flo(n % 2 ? f : to, n % 3 ? '❤️' : '💋', 1.6, 1, 2.4); if (++n > 7) clearInterval(iv); }, 450);
+      let n = 0; const iv = setInterval(() => { flo(n % 2 ? f : to, n % 3 ? '❤️' : '💋', 1.6, 1, 2.4); if (!(n % 3)) sfx.kiss(); if (++n > 7) clearInterval(iv); }, 450);
       if (f === uid || to === uid) toast('💖 ' + nm(to) + ' আর ' + nm(f) + ' — প্রেম হয়ে গেল!');
     } else {
       A(f, { k: 'throw', dur: 1.1 }); flo(f, '😠', 1.8, 1.1);
@@ -1221,7 +1280,7 @@ function fxHandle(v) {
         const sx = s.position.x, sz = s.position.z, tx = t.position.x, tz = t.position.z, Tt = .5, G = 6;
         prj('👞', sx, 1.5, sz, (tx - sx) / Tt, .5 * G * Tt, (tz - sz) / Tt, Tt, G, .9, false);
         setTimeout(() => {
-          hit(to, f, { k: 'fly', D: .8, lie: 1.3, H: 1.1, dur: 2.6, dist: 3 }); flo(to, '🦷💥', 2.2, 1.3, 2.3); snd(140, 'square', .15);
+          hit(to, f, { k: 'fly', D: .8, lie: 1.3, H: 1.1, dur: 2.6, dist: 3 }); flo(to, '🦷💥', 2.2, 1.3, 2.3); sfx.slap();
           prj('🦷', t.position.x, 1.7, t.position.z, (Math.random() - .5) * 2, 3.5, (Math.random() - .5) * 2, 3, 9, .55, true);
           if (to === uid) toast('জুতা খেয়ে একটা দাঁত খুলে পড়ে গেল! 🦷');
         }, 480);
@@ -1229,7 +1288,7 @@ function fxHandle(v) {
     }
   }
 }
-function funReset() { for (const u in ACT) dropAct(u); acts = {}; SWIM = false; propFrom = null; clearTimeout(propT); for (const o of PRJ) scene.remove(o.sp); PRJ.length = 0; for (const f of FLO) f.g.remove(f.sp); FLO.length = 0; }
+function funReset() { for (const u in ACT) dropAct(u); acts = {}; pickU = null; atkAt = 0; for (const u in hitAt) delete hitAt[u]; SWIM = false; propFrom = null; clearTimeout(propT); for (const o of PRJ) scene.remove(o.sp); PRJ.length = 0; for (const f of FLO) f.g.remove(f.sp); FLO.length = 0; }
 $('funBtn').onclick = () => { $('chatBox').hidden = true; const b = $('funBox'); b.hidden = !b.hidden; };
 $('funBox').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (!b) return; $('funBox').hidden = true; doFun(b.dataset.f); });
 $('pYes').onclick = () => answer(true); $('pNo').onclick = () => answer(false);

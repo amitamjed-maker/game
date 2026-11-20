@@ -1,0 +1,22 @@
+{
+  "_note": "এটা পুরো rules ফাইল নয়, শুধু মিলিয়ে নেওয়ার নমুনা। Firebase Console > Realtime Database > Rules-এ আপনার আগের rules রেখে শুধু rooms/online/invites অংশ মিলিয়ে নিন। একই ডেটাবেসে অন্য অ্যাপ থাকলে পুরো rules বদলে দেবেন না। অ্যাপে Firebase Auth নেই, তাই এই rules খোলা লেখার অনুমতি দেয় আর শুধু ডেটার আকার/ধরন যাচাই করে।",
+  "rules": {
+    "rooms": {
+      "$room": {
+        ".read": true,
+        ".write": true,
+        "chat": {
+          "$m": { ".validate": "newData.hasChildren(['u','text','t']) && newData.child('text').isString() && newData.child('text').val().length <= 200" }
+        },
+        "fx": {
+          "$m": { ".validate": "newData.hasChildren(['f','k','t'])" }
+        },
+        "act": {
+          "$u": { ".validate": "newData.isString() && newData.val().length <= 10" }
+        }
+      }
+    },
+    "online": { ".read": true, "$u": { ".write": true } },
+    "invites": { "$u": { ".read": true, ".write": true } }
+  }
+}
