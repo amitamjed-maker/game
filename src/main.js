@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, update, remove, onDisconnect, get } from 'firebase/database';
+import { getDatabase, ref, onValue, set, update, remove, onDisconnect, get, onChildAdded } from 'firebase/database';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { firebaseConfig } from './firebase-config.js';
 
@@ -84,7 +84,8 @@ function subscribe(code) {
     onValue(ref(db, b + 'choices'), s => { choices = s.val() || {}; renderToss(); }),
     onValue(ref(db, b + 'caught'), s => { const n = s.val() || {}; if (n[uid] && !caught[uid]) toast('আপনি ধরা পড়েছেন!'); caught = n; }),
     onValue(ref(db, b + 'pos'), s => { pos = s.val() || {}; }),
-    onValue(ref(db, b + 'skin'), s => { skin = s.val() || {}; renderAll(); })
+    onValue(ref(db, b + 'skin'), s => { skin = s.val() || {}; renderAll(); }),
+    onChildAdded(ref(db, b + 'shots'), s => { const v = s.val(); if (!v || seenShots.has(s.key) || now() - v.t > 3000) return; seenShots.add(s.key); spawnBall(v, false); })
   ];
 }
 function leaveRoom() {
@@ -94,8 +95,8 @@ function leaveRoom() {
     update(ref(db, 'online/' + uid), { room: '' });
   }
   room = null; players = {}; pos = {}; skin = {}; choices = {}; caught = {}; state = { phase: 'lobby' };
-  syncAvatars();
-  ['hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins'].forEach(i => $(i).hidden = true);
+  syncAvatars(); clearPaint(); seenShots.clear();
+  ['hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins', 'xh', 'hint'].forEach(i => $(i).hidden = true);
   $('menu').hidden = false;
 }
 
@@ -151,7 +152,7 @@ function hostTick() {
   const s = state, t = now(), ids = Object.keys(players), p = s.phase;
   const put = (o, x = {}) => update(ref(db, 'rooms/' + room), { state: o, ...x });
   const nextToss = (alive, msg) => put({ phase: 'toss', round: (s.round || 1) + 1, alive, parts: s.parts, deadline: t + TOSS_MS, msg }, { choices: null });
-  const toHide = (seeker, msg) => put({ phase: 'hide', seeker, parts: (s.parts || []).filter(u => players[u]), deadline: t + HIDE_MS, msg: msg || '' }, { choices: null, caught: null, skin: null });
+  const toHide = (seeker, msg) => put({ phase: 'hide', seeker, parts: (s.parts || []).filter(u => players[u]), deadline: t + HIDE_MS, msg: msg || '' }, { choices: null, caught: null, skin: null, shots: null });
   const end = w => put({ phase: 'end', seeker: s.seeker, parts: s.parts, winner: w, deadline: t + END_MS });
   if (p !== 'lobby' && ids.length < 2) return put({ phase: 'lobby' }, { choices: null, caught: null });
   if (p === 'toss') {
@@ -178,7 +179,7 @@ function hostTick() {
     if (hs.every(u => caught[u])) return end('seeker');
     if (t >= s.deadline) return end('hiders');
   }
-  if (p === 'end' && t >= s.deadline) return put({ phase: 'lobby' }, { choices: null, caught: null, skin: null });
+  if (p === 'end' && t >= s.deadline) return put({ phase: 'lobby' }, { choices: null, caught: null, skin: null, shots: null });
 }
 
 /* ---------- UI reactions ---------- */
@@ -191,6 +192,8 @@ function onPlayers() {
 function onState(old) {
   const p = state.phase;
   if (p !== old.phase) {
+    if (p === 'hide' || p === 'lobby') clearPaint();
+    if (p === 'seek' && iAmSeeker()) toast('ফায়ার চেপে রঙের গুলি ছুড়ুন!');
     if (p === 'seek') lastSig = Math.floor((now() - (state.seekStart || now())) / SIG_MS);
     if (p === 'hide' && !iAmSeeker()) toast('"রূপ" বাটন চেপে চেয়ার, গাছ বা অন্য কিছু হয়ে লুকান!');
     if (p === 'hide') spawnGame(); else if (p === 'lobby' && old.phase !== 'lobby') spawnLobby();
@@ -204,7 +207,7 @@ function renderAll() {
   $('blind').hidden = !(p === 'hide' && iAmSeeker());
   $('coinov').hidden = p !== 'coin';
   $('end').hidden = p !== 'end'; if (p === 'end') renderEnd();
-  $('catch').hidden = !(p === 'seek' && iAmSeeker());
+  $('catch').hidden = !(p === 'seek' && iAmSeeker()); $('xh').hidden = $('catch').hidden;
   const canMorph = (p === 'hide' || p === 'seek') && !iAmSeeker() && (state.parts || []).includes(uid) && !caught[uid];
   $('morph').hidden = !canMorph; if (!canMorph) $('skins').hidden = true;
   renderToss();
@@ -274,19 +277,27 @@ const leafG = new THREE.BoxGeometry(2.2, .05, .45).translate(1.1, 0, 0);
 const P = (g, x, y, z, c, s) => ({ g, p: [x, y, z], c, s });
 const WD = 0x8a5a2b;
 const legs = (h, t, dx, dz, c) => [-1, 1].flatMap(a => [-1, 1].map(b => P(gb(t, h, t), a * dx, h / 2, b * dz, c)));
+const prop = (n, p, r, h, fp) => ({ n, p, r, h, fp });
+const BK = (y, c) => P(gb(1.2, .12, .3), 0, y, .02, c);
 const PROPS = {
-  chair: { n: 'চেয়ার', p: [P(gb(.5, .08, .5), 0, .45, 0, WD), P(gb(.5, .6, .08), 0, .78, -.21, WD), ...legs(.45, .06, .2, .2, WD)] },
-  table: { n: 'টেবিল', p: [P(gb(1.4, .08, .9), 0, .8, 0, 0x9b6a3a), ...legs(.8, .08, .6, .35, 0x7d5229)] },
-  sofa: { n: 'সোফা', p: [P(gb(2, .5, .9), 0, .25, 0, 0x3f6ea8), P(gb(2, .55, .2), 0, .78, -.35, 0x345c8e), P(gb(.2, .6, .9), -1, .4, 0, 0x345c8e), P(gb(.2, .6, .9), 1, .4, 0, 0x345c8e)] },
-  bed: { n: 'খাট', p: [P(gb(2, .4, 1.4), 0, .2, 0, WD), P(gb(1.9, .2, 1.3), 0, .5, 0, 0xe8e0d0), P(gb(.5, .12, .35), -.7, .66, 0, 0xffffff), P(gb(.08, .9, 1.4), -1, .45, 0, 0x6e4521)] },
-  cupboard: { n: 'আলমারি', p: [P(gb(1, 2, .5), 0, 1, 0, 0x7a4a24), P(gb(.03, 1.8, .03), 0, 1, .26, 0x2b1b0c)] },
-  stool: { n: 'মোড়া', p: [P(gc(.3, .3, .45, 10), 0, .225, 0, 0xc58b4a)] },
-  tree: { n: 'গাছ', p: [P(gc(.28, .4, 3, 6), 0, 1.5, 0, 0x6b4423), P(gs(1.8, 8, 6), 0, 3.8, 0, 0x2f7a35), P(gs(1.3, 8, 6), .9, 3.2, .3, 0x3a8a3c), P(gs(1.2, 8, 6), -.8, 3.4, -.5, 0x2a6b30)] },
-  bush: { n: 'ঝোপ', p: [P(gs(1.3, 8, 6), 0, .9, 0, 0x3f7d3a, [1, .85, 1]), P(gs(.8, 8, 6), .9, .6, .4, 0x4c8c44)] },
-  hay: { n: 'খড়ের গাদা', p: [P(gk(1.6, 2.6, 8), 0, 1.3, 0, 0xe0c060)] },
-  pot: { n: 'কলস', p: [P(gs(.5, 10, 8), 0, .5, 0, 0xb5562e), P(gc(.2, .3, .25, 10), 0, 1.05, 0, 0xb5562e)] },
-  drum: { n: 'ড্রাম', p: [P(gc(.45, .45, .9, 10), 0, .45, 0, 0x2f5fa0)] },
-  rock: { n: 'পাথর', p: [P(gs(.8, 7, 5), 0, .4, 0, 0x8a8d90, [1, .7, 1])] }
+  chair: prop('চেয়ার', [P(gb(.5, .08, .5), 0, .45, 0, WD), P(gb(.5, .6, .08), 0, .78, -.21, WD), ...legs(.45, .06, .2, .2, WD)], .4, 1.1, [.5, .5]),
+  table: prop('টেবিল', [P(gb(1.4, .08, .9), 0, .8, 0, 0x9b6a3a), ...legs(.8, .08, .6, .35, 0x7d5229)], .8, .9, [1.4, .9]),
+  sofa: prop('সোফা', [P(gb(2, .5, .9), 0, .25, 0, 0x3f6ea8), P(gb(2, .55, .2), 0, .78, -.35, 0x345c8e), P(gb(.2, .6, .9), -1, .4, 0, 0x345c8e), P(gb(.2, .6, .9), 1, .4, 0, 0x345c8e)], 1.05, 1.2, [2, .9]),
+  bed: prop('খাট', [P(gb(2, .4, 1.4), 0, .2, 0, WD), P(gb(1.9, .2, 1.3), 0, .5, 0, 0xe8e0d0), P(gb(.5, .12, .35), -.7, .66, 0, 0xffffff), P(gb(.08, .9, 1.4), -1, .45, 0, 0x6e4521)], 1.1, .9, [2, 1.4]),
+  cupboard: prop('আলমারি', [P(gb(1, 2, .5), 0, 1, 0, 0x7a4a24), P(gb(.03, 1.8, .03), 0, 1, .26, 0x2b1b0c)], .65, 2, [1, .5]),
+  shelf: prop('বইয়ের তাক', [P(gb(1.4, 1.8, .4), 0, .9, 0, 0x7a4a24), BK(.5, 0xc0392b), BK(.95, 0x2e86c1), BK(1.4, 0xf1c40f)], .75, 1.8, [1.4, .4]),
+  tv: prop('টিভি', [P(gb(1.4, .5, .5), 0, .25, 0, 0x5b3a1e), P(gb(1.2, .75, .06), 0, .85, -.03, 0x2b2b2b), P(gb(1.1, .65, .08), 0, .85, 0, 0x111111)], .75, 1.25, [1.4, .5]),
+  lamp: prop('বাতি', [P(gc(.2, .25, .06, 10), 0, .03, 0, 0x444444), P(gc(.03, .03, 1.5, 6), 0, .8, 0, 0x444444), P(gc(.28, .16, .35, 10), 0, 1.65, 0, 0xffe08a)], .3, 1.85, [.4, .4]),
+  plant: prop('গাছের টব', [P(gc(.3, .22, .4, 10), 0, .2, 0, 0xb5562e), P(gs(.4, 8, 6), 0, .7, 0, 0x2f8f3a), P(gs(.28, 8, 6), .2, .95, .1, 0x3aa347)], .45, 1.3, [.6, .6]),
+  stool: prop('মোড়া', [P(gc(.3, .3, .45, 10), 0, .225, 0, 0xc58b4a)], .35, .5, [.6, .6]),
+  bench: prop('বেঞ্চ', [P(gb(1.6, .08, .5), 0, .5, 0, WD), P(gb(1.6, .4, .06), 0, .8, -.22, WD), ...legs(.5, .07, .7, .18, 0x6b4423)], .9, 1, [1.6, .5]),
+  bucket: prop('বালতি', [P(gc(.3, .24, .5, 10), 0, .25, 0, 0xd1453b)], .35, .55, [.6, .6]),
+  tree: prop('গাছ', [P(gc(.28, .4, 3, 6), 0, 1.5, 0, 0x6b4423), P(gs(1.8, 8, 6), 0, 3.8, 0, 0x2f7a35), P(gs(1.3, 8, 6), .9, 3.2, .3, 0x3a8a3c), P(gs(1.2, 8, 6), -.8, 3.4, -.5, 0x2a6b30)], 1, 5, [1, 1]),
+  bush: prop('ঝোপ', [P(gs(1.3, 8, 6), 0, .9, 0, 0x3f7d3a, [1, .85, 1]), P(gs(.8, 8, 6), .9, .6, .4, 0x4c8c44)], 1.2, 1.4, [1, 1]),
+  hay: prop('খড়ের গাদা', [P(gk(1.6, 2.6, 8), 0, 1.3, 0, 0xe0c060)], 1.3, 2.6, [1, 1]),
+  pot: prop('কলস', [P(gs(.5, 10, 8), 0, .5, 0, 0xb5562e), P(gc(.2, .3, .25, 10), 0, 1.05, 0, 0xb5562e)], .5, 1.3, [1, 1]),
+  drum: prop('ড্রাম', [P(gc(.45, .45, .9, 10), 0, .45, 0, 0x2f5fa0)], .5, .9, [1, 1]),
+  rock: prop('পাথর', [P(gs(.8, 7, 5), 0, .4, 0, 0x8a8d90, [1, .7, 1])], .75, .8, [1, 1])
 };
 const rng = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const R = rng(20261119);
@@ -316,7 +327,7 @@ addS(gp(), 0xaac85a, -40, .02, -38, 0, 16, 1, 12); addS(gp(), 0xaac85a, 40, .02,
 for (let i = 0; i < 3; i++) addS(gb(.7, .1 * (3 - i), 3), 0xb0a690, 16.5 - i * .7, .05 * (3 - i), -22);
 addS(gb(3.2, .35, 1.1), WD, 30, .15, -27, .4);
 
-const boxes = [], cols = [{ x: 26, z: -22, r: 10 }];
+const boxes = [], hbs = [], rooms = [], cols = [{ x: 26, z: -22, r: 10, h: 0 }];
 const resv = [{ x: 26, z: -22, r: 11 }, { x: -40, z: -38, r: 12 }, { x: 40, z: 38, r: 12 }, { x: 0, z: 0, r: 13 }];
 function spot(rad, gap, lim = 50, rc = 0) {
   for (let i = 0; i < 100; i++) {
@@ -326,57 +337,88 @@ function spot(rad, gap, lim = 50, rc = 0) {
   }
   return null;
 }
-const FP = { sofa: [2, .9], table: [1.4, .9], bed: [2, 1.4], cupboard: [1, .5], chair: [.5, .5], stool: [.6, .6] };
+for (let i = 0; i < 8; i++) { addS(gp(), 0x95b44a, -40, .025, -43 + i * 1.5, 0, 15, 1, .3); addS(gp(), 0x95b44a, 40, .025, 33 + i * 1.5, 0, 15, 1, .3); }
+for (let i = 0; i < 8; i++) { const a = i * .8, r = 2 + (i % 3) * 1.8; addS(gcirc, 0x3f9d4a, 26 + Math.cos(a) * r, .035, -22 + Math.sin(a) * r, 0, .5, 1, .5); }
 function house(cx, cz, k, W, D, wc, rc) {
   const ry = k * Math.PI / 2, c = Math.round(Math.cos(ry)), s = Math.round(Math.sin(ry)), H = 2.8, odd = k & 1;
   const wp = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
   const wall = (x1, z1, x2, z2) => {
     const w = Math.abs(x2 - x1) || .25, d = Math.abs(z2 - z1) || .25, [wx, wz] = wp((x1 + x2) / 2, (z1 + z2) / 2);
     addS(gb(w, H, d), wc, wx, H / 2, wz, ry);
-    const hw = (odd ? d : w) / 2, hd = (odd ? w : d) / 2; boxes.push({ x1: wx - hw, x2: wx + hw, z1: wz - hd, z2: wz + hd, wall: 1 });
+    const hw = (odd ? d : w) / 2, hd = (odd ? w : d) / 2; boxes.push({ x1: wx - hw, x2: wx + hw, z1: wz - hd, z2: wz + hd, wall: 1, h: H });
   };
   wall(-W / 2, -D / 2, W / 2, -D / 2); wall(-W / 2, -D / 2, -W / 2, D / 2); wall(W / 2, -D / 2, W / 2, D / 2);
   wall(-W / 2, D / 2, -.9, D / 2); wall(.9, D / 2, W / 2, D / 2); // সামনের দেয়ালে দরজা
-  { const [x, z] = wp(0, D / 2); addS(gb(1.8, .6, .25), wc, x, 2.5, z, ry); const [a, b] = wp(0, D / 2 + .5); addS(gb(2.2, .15, .8), 0xb0a690, a, .075, b, ry); }
-  { const [x, z] = wp(0, 0); addS(gp(), 0xb98b5e, x, .03, z, ry, W - .3, 1, D - .3); const [a, b] = wp(W / 4, 0); addS(gp(), 0xa8423a, a, .045, b, ry, 2.6, 1, 1.8); }
+  { const [x, z] = wp(0, D / 2); addS(gb(1.8, .6, .25), wc, x, 2.5, z, ry); const [a, b] = wp(0, D / 2 + .5); addS(gb(2.4, .15, .8), 0xb0a690, a, .075, b, ry);
+    for (const sx of [-.95, .95]) { const [p, q] = wp(sx, D / 2); addS(gb(.12, 2.2, .32), 0x5a3a1e, p, 1.1, q, ry); } }
+  { const [x, z] = wp(0, 0); addS(gp(), 0xb98b5e, x, .03, z, ry, W - .3, 1, D - .3);
+    const [a, b] = wp(W / 4, .3); addS(gp(), 0xa8423a, a, .045, b, ry, 3.2, 1, 2.2);
+    const [e, f] = wp(-W / 2 + 2, -D / 2 + 2.3); addS(gp(), 0x3a6a8a, e, .045, f, ry, 3, 1, 1.8); }
   addS(roofG, rc, cx, H + .9, cz, ry, (W / 2 + .55) / .7071, 1, (D / 2 + .55) / .7071);
+  { const [x, z] = wp(W / 4, -D / 4); addS(gb(.6, 1.5, .6), 0x8a4b3a, x, H + 1.1, z, ry); }
   const win = (lx, lz, an) => { const [x, z] = wp(lx, lz); addS(gb(.9, .7, .06), 0x2d4a5a, x, 1.6, z, ry + an); };
-  for (const d of [-.14, .14]) { win(0, -D / 2 + d, 0); win(-W / 2 + d, 0, Math.PI / 2); win(W / 2 + d, 0, Math.PI / 2); }
+  for (const d of [-.14, .14]) { win(0, -D / 2 + d, 0); win(-W / 2 + d, 0, Math.PI / 2); win(W / 2 + d, 0, Math.PI / 2); win(-W / 4, D / 2 + d, 0); win(W / 4, D / 2 + d, 0); }
   const fu = (t, lx, lz, an = 0) => {
     const [x, z] = wp(lx, lz); putProp(t, x, z, ry + an);
-    const o = Math.round((ry + an) / (Math.PI / 2)) & 1, [fw, fd] = FP[t], hw = (o ? fd : fw) / 2, hd = (o ? fw : fd) / 2;
-    boxes.push({ x1: x - hw, x2: x + hw, z1: z - hd, z2: z + hd });
+    const o = Math.round((ry + an) / (Math.PI / 2)) & 1, [fw, fd] = PROPS[t].fp, hw = (o ? fd : fw) / 2, hd = (o ? fw : fd) / 2;
+    boxes.push({ x1: x - hw, x2: x + hw, z1: z - hd, z2: z + hd, h: PROPS[t].h });
   };
-  fu('sofa', -W / 2 + 1.4, -D / 2 + .8); fu('table', W / 4, 0); fu('chair', W / 4 - 1.1, .2, Math.PI / 2); fu('chair', W / 4 + 1.1, -.1, -Math.PI / 2);
-  fu('chair', W / 4, .95, Math.PI); fu('bed', W / 2 - 1.4, -D / 2 + .9); fu('cupboard', -W / 2 + .5, .2, Math.PI / 2); fu('stool', -.6, 1);
+  fu('sofa', -W / 2 + 1.4, -D / 2 + .8); fu('shelf', 0, -D / 2 + .35); fu('bed', W / 2 - 1.4, -D / 2 + .9);
+  fu('table', W / 4, .3); fu('chair', W / 4 - 1.1, .5, Math.PI / 2); fu('chair', W / 4 + 1.1, .2, -Math.PI / 2); fu('chair', W / 4, 1.25, Math.PI); fu('chair', W / 4, -.65);
+  fu('cupboard', -W / 2 + .5, .2, Math.PI / 2); fu('cupboard', -W / 2 + .5, 1.8, Math.PI / 2);
+  fu('tv', W / 2 - .4, D / 4, -Math.PI / 2); fu('lamp', -W / 2 + .45, D / 2 - .6); fu('plant', W / 2 - .5, D / 2 - .6); fu('stool', -1.8, 1.6);
+  const hx = (odd ? D : W) / 2, hz = (odd ? W : D) / 2;
+  hbs.push({ x1: cx - hx - .55, x2: cx + hx + .55, z1: cz - hz - .55, z2: cz + hz + .55, cx, cz, hw: hx + .55, hd: hz + .55 });
+  rooms.push({ x1: cx - hx + .13, x2: cx + hx - .13, z1: cz - hz + .13, z2: cz + hz - .13 });
 }
 const wallCols = [0xe3cfa6, 0xd2a679, 0xb9c9a0, 0xe6d9c0, 0xc9d6dd], roofCols = [0x8fa1aa, 0xb68b45, 0x9a4f2f, 0x6e7f8a];
-for (let i = 0; i < 11; i++) {
-  const W = 7 + (R() < .5 ? 2 : 0), D = 6 + (R() < .5 ? 1 : 0), p = spot(Math.max(W, D) / 2 + 2.8, .5, 46, 1);
+for (let i = 0; i < 14; i++) {
+  const W = 11 + (R() < .5 ? 2 : 0), D = 9 + (R() < .5 ? 1 : 0), p = spot(Math.max(W, D) / 2 + 3.2, .5, 44, 1);
   if (p) house(p.x, p.z, R() * 4 | 0, W, D, wallCols[i % 5], roofCols[i % 4]);
 }
-for (let i = 0; i < 34; i++) { const p = spot(1.2, .8); if (p) { putProp('tree', p.x, p.z, R() * 6, .9 + R() * .5); cols.push({ x: p.x, z: p.z, r: .55 }); } }
+const inHb = (x, z, m = 0) => hbs.some(h => x > h.x1 - m && x < h.x2 + m && z > h.z1 - m && z < h.z2 + m);
+for (let i = 0; i < 34; i++) { const p = spot(1.2, .8); if (p) { putProp('tree', p.x, p.z, R() * 6, .9 + R() * .5); cols.push({ x: p.x, z: p.z, r: .55, h: 5 }); } }
 for (let i = -56; i <= 56; i += 8) for (const [x, z] of [[i, 58], [i, -58], [58, i], [-58, i]]) putProp('tree', x, z, R() * 6, 1.2);
 for (let i = 0; i < 14; i++) { // নারকেল গাছ
   const p = spot(1, .8); if (!p) continue; const h = 5 + R() * 1.5;
   addS(gc(.13, .22, h, 6), 0x8a6a45, p.x, h / 2, p.z);
   for (let j = 0; j < 7; j++) addS(leafG, 0x3d8f3a, p.x, h, p.z, j * .9 + R() * .3, 1, 1, 1, -.55);
-  cols.push({ x: p.x, z: p.z, r: .4 });
+  cols.push({ x: p.x, z: p.z, r: .4, h: 6 });
 }
 for (let i = 0; i < 6; i++) { // বাঁশঝাড়
   const p = spot(1.5, .8); if (!p) continue;
   for (let j = 0; j < 6; j++) { const a = j * 1.05, r = .5 * R(); addS(gc(.06, .07, 5.5, 5), 0x7fae3a, p.x + Math.cos(a) * r, 2.75, p.z + Math.sin(a) * r, 0, 1, 1, 1, (R() - .5) * .15); }
-  cols.push({ x: p.x, z: p.z, r: .8 });
+  cols.push({ x: p.x, z: p.z, r: .8, h: 5.5 });
 }
-for (let i = 0; i < 6; i++) { const p = spot(1.6, 1); if (p) { putProp('hay', p.x, p.z, R() * 6); cols.push({ x: p.x, z: p.z, r: 1.4 }); } }
-for (let i = 0; i < 8; i++) { const p = spot(.8, .5), sc = .7 + R() * .8; if (p) { putProp('rock', p.x, p.z, R() * 6, sc); cols.push({ x: p.x, z: p.z, r: .7 * sc }); } }
+for (let i = 0; i < 6; i++) { const p = spot(1.6, 1); if (p) { putProp('hay', p.x, p.z, R() * 6); cols.push({ x: p.x, z: p.z, r: 1.4, h: 2.6 }); } }
+for (let i = 0; i < 8; i++) { const p = spot(.8, .5), sc = .7 + R() * .8; if (p) { putProp('rock', p.x, p.z, R() * 6, sc); cols.push({ x: p.x, z: p.z, r: .7 * sc, h: .8 * sc }); } }
+for (let i = 0; i < 5; i++) { const p = spot(1.3, .8); if (p) { putProp('bench', p.x, p.z, R() * 6.28); cols.push({ x: p.x, z: p.z, r: .9, h: 1 }); } }
 for (let i = 0; i < 30; i++) { const p = spot(1.5, .3); if (p) putProp('bush', p.x, p.z, R() * 6, .9 + R() * .4); }
-{ const w = spot(1.6, 1); if (w) { addS(gc(.9, 1, .7, 12), 0x9a9a9a, w.x, .35, w.z); addS(gc(.55, .55, .72, 12), 0x2a4a6a, w.x, .36, w.z); cols.push({ x: w.x, z: w.z, r: 1.1 }); } }
+for (const [x, z] of [[4.5, 18], [-4.5, -18], [4.5, -18], [-4.5, 18], [18, 4.5], [-18, -4.5], [18, -4.5], [-18, 4.5]]) { // রাস্তার বাতি
+  addS(gc(.06, .08, 4, 6), 0x444444, x, 2, z); addS(gs(.22, 8, 6), 0xffe9a0, x, 4.1, z); cols.push({ x, z, r: .3, h: 4 });
+}
+const FLW = [0xff5a5a, 0xffd84a, 0xff9ad5, 0xffffff, 0xb07aff];
+for (let i = 0; i < 40; i++) { const p = spot(.5, .2); if (!p) continue; for (let j = 0; j < 5; j++) addS(gs(.1, 6, 5), FLW[(i + j) % 5], p.x + (R() - .5) * .7, .15, p.z + (R() - .5) * .7); }
+const GRN = [0x4f8f3a, 0x6fae48, 0x3f7d33];
+for (let i = 0; i < 170; i++) { const x = (R() * 2 - 1) * 54, z = (R() * 2 - 1) * 54; if (inHb(x, z, 1) || Math.hypot(x - 26, z + 22) < 10.5 || Math.abs(x) < 3 || Math.abs(z) < 3) continue; addS(gk(.1, .55, 4), GRN[i % 3], x, .27, z, R() * 6); }
+{ const w = spot(1.6, 1); if (w) { addS(gc(.9, 1, .7, 12), 0x9a9a9a, w.x, .35, w.z); addS(gc(.55, .55, .72, 12), 0x2a4a6a, w.x, .36, w.z); cols.push({ x: w.x, z: w.z, r: 1.1, h: .7 }); } }
+function solidAt(x, y, z) {
+  if (y <= 0) return 1;
+  for (const b of boxes) if (y < b.h && x > b.x1 && x < b.x2 && z > b.z1 && z < b.z2) return 1;
+  for (const k of cols) if (k.h && y < k.h) { const ex = x - k.x, ez = z - k.z; if (ex * ex + ez * ez < k.r * k.r) return 1; }
+  for (const h of hbs) if (y > 2.8 && x > h.x1 && x < h.x2 && z > h.z1 && z < h.z2) { const f = 1 - Math.max(Math.abs(x - h.cx) / h.hw, Math.abs(z - h.cz) / h.hd); if (y < 2.8 + 1.8 * f) return 1; }
+  return 0;
+}
+function rayWorld(ox, oy, oz, dx, dy, dz, max) {
+  for (let t = .5; t < max; t += .25) { const x = ox + dx * t, y = oy + dy * t, z = oz + dz * t; if (solidAt(x, y, z)) return { t, x, y, z, hit: 1 }; }
+  return { t: max, x: ox + dx * max, y: oy + dy * max, z: oz + dz * max, hit: 0 };
+}
 const worldGeo = mergeGeometries(SP, false);
 if (!worldGeo) throw new Error('world merge failed');
 const world = new THREE.Mesh(worldGeo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
 scene.add(world); SP.length = 0;
 /*WORLD_END*/
+{ const sd = new THREE.Mesh(new THREE.SphereGeometry(9, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff3b0, fog: false })); sd.position.set(86.6, 129.9, 54.1); scene.add(sd); }
 { const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, opacity: .9 });
   for (let i = 0; i < 8; i++) { const m = new THREE.Mesh(gs(1), cm); m.scale.set(14 + i * 2, 3, 7); m.position.set(Math.cos(i * 2.4) * 110, 70 + i * 3, Math.sin(i * 2.4) * 110); scene.add(m); } }
 
@@ -405,9 +447,12 @@ function makeAvatar(u) {
   const legL = limb(.18, .7, -.13, .7, pant, shoe(), -.66), legR = limb(.18, .7, .13, .7, pant, shoe(), -.66);
   hum.add(M(gb(.5, .6, .28), shirt, 0, 1, 0), M(gs(.2, 12, 10), skin, 0, 1.5, 0), M(hairG, mat(0x1a1410), 0, 1.52, 0),
     M(gs(.03, 6, 5), mat(0x111111), -.07, 1.53, .18), M(gs(.03, 6, 5), mat(0x111111), .07, 1.53, .18), armL, armR, legL, legR);
+  const gun = new THREE.Group(), brl = M(gc(.035, .035, .4, 6), mat(0x888888), 0, .03, .6); brl.rotation.x = Math.PI / 2;
+  gun.add(M(gb(.1, .16, .5), mat(0x333333), 0, 0, .2), brl, M(gs(.09, 8, 6), mat(0xff3b30), 0, .15, .1), M(gb(.07, .2, .09), mat(0x222222), 0, -.15, .05));
+  gun.position.set(.3, 1.0, .25); gun.visible = false; hum.add(gun);
   const lb = label(players[u]?.name || '?');
   g.add(hum, M(shadowG, shadowM, 0, .06, 0), lb);
-  g.userData = { hum, shirt, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
+  g.userData = { hum, shirt, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
   scene.add(g); return g;
 }
 function syncAvatars() {
@@ -433,8 +478,8 @@ function updateAvatars(dt) {
     const sk = gameOn && u === state.seeker, ct = (p === 'hide' || p === 'seek' || p === 'end') && !!caught[u];
     const want = gameOn && !sk && !ct && PROPS[skin[u]] ? skin[u] : null;
     if (want !== d.ptype) { if (d.prop) { g.remove(d.prop); d.prop = null; } if (want) { d.prop = buildProp(want); g.add(d.prop); } d.ptype = want; }
-    d.hum.visible = !d.prop;
-    d.shirt.color.set(sk ? 0xd64545 : ct ? 0x888888 : d.col);
+    d.hum.visible = !d.prop; d.gun.visible = sk;
+    d.shirt.color.set(sk ? 0xd64545 : ct ? (typeof caught[u] === 'number' ? caught[u] : 0x888888) : d.col);
     g.scale.y = ct ? .45 : 1;
     d.lb.visible = u !== uid && (p === 'lobby' || sk);
   }
@@ -442,7 +487,7 @@ function updateAvatars(dt) {
 
 /* ---------- নিয়ন্ত্রণ ---------- */
 const me = { x: 0, z: 6, ry: 0 };
-let camYaw = 0, camPitch = .5, camDist = 7.5, lastSend = 0, dirty = false, stunUntil = 0, lastSig = 0;
+let camYaw = 0, camPitch = .5, camF = 1, lastSend = 0, dirty = false, lastSig = 0;
 function sendPos(force) {
   if (!room) return; const t = performance.now();
   if (!force && t - lastSend < 100) return; lastSend = t; dirty = false;
@@ -460,11 +505,11 @@ function canMove() {
   const p = state.phase, inG = (state.parts || []).includes(uid);
   if (p === 'lobby') return true;
   if (p === 'hide') return !iAmSeeker() && inG && !caught[uid];
-  if (p === 'seek') return inG && !caught[uid] && !(iAmSeeker() && performance.now() < stunUntil);
+  if (p === 'seek') return inG && !caught[uid];
   return false;
 }
 const keys = {};
-addEventListener('keydown', e => { if (document.activeElement.tagName === 'INPUT') return; keys[e.code] = 1; if (e.code === 'KeyE' || e.code === 'Space') doCatch(); });
+addEventListener('keydown', e => { if (document.activeElement.tagName === 'INPUT') return; keys[e.code] = 1; if (e.code === 'KeyE' || e.code === 'Space') fire(); });
 addEventListener('keyup', e => keys[e.code] = 0);
 let jx = 0, jz = 0, jid = null; const joy = $('joy'), knob = $('knob');
 function jm(e) { const r = joy.getBoundingClientRect(), Rr = r.width / 2; let dx = e.clientX - r.left - Rr, dy = e.clientY - r.top - Rr; const d = Math.hypot(dx, dy); if (d > Rr) { dx *= Rr / d; dy *= Rr / d; } jx = dx / Rr; jz = dy / Rr; knob.style.transform = `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`; }
@@ -476,24 +521,66 @@ let drag = null;
 cv.addEventListener('pointerdown', e => { drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
 cv.addEventListener('pointermove', e => { if (drag && drag.id === e.pointerId) { camYaw -= (e.clientX - drag.x) * .006; camPitch = Math.max(.12, Math.min(1.2, camPitch + (e.clientY - drag.y) * .004)); drag.x = e.clientX; drag.y = e.clientY; } });
 cv.addEventListener('pointerup', () => drag = null);
-$('catch').onclick = doCatch;
+let fireIv = null; const fb = $('catch');
+fb.addEventListener('pointerdown', e => { e.preventDefault(); fire(); clearInterval(fireIv); fireIv = setInterval(fire, 230); });
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => fb.addEventListener(ev, () => { clearInterval(fireIv); fireIv = null; }));
 
 const skinBox = $('skins');
 skinBox.innerHTML = Object.entries(PROPS).map(([k, v]) => `<button data-s="${k}">${v.n}</button>`).join('') + '<button data-s="">মানুষ</button>';
 skinBox.onclick = e => { const b = e.target.closest('[data-s]'); if (!b || !room) return; set(ref(db, `rooms/${room}/skin/${uid}`), b.dataset.s || null); skinBox.hidden = true; };
 $('morph').onclick = () => { skinBox.hidden = !skinBox.hidden; };
 
-function doCatch() {
-  if (!room || state.phase !== 'seek' || !iAmSeeker() || performance.now() < stunUntil) return;
-  const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw); let best = null, bd = 9;
-  for (const u of hiders()) {
-    const p = pos[u]; if (caught[u] || !p) continue;
-    const dx = p.x - me.x, dz = p.z - me.z, d = Math.hypot(dx, dz);
-    if (d < 3.2 && d > 0 && (dx * fx + dz * fz) / d > .7 && d < bd) { best = u; bd = d; }
-  }
-  if (best) { set(ref(db, `rooms/${room}/caught/${best}`), true); toast(`${players[best]?.name || ''} ধরা পড়েছে!`); }
-  else { stunUntil = performance.now() + 1800; toast('ভুল! ২ সেকেন্ড থামুন'); }
+/* ---------- বন্দুক: রঙের গুলি ---------- */
+const BALLC = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d95, 0xbf5af2, 0xff9f0a];
+const balls = [], splats = [], bm = {}, spm = {}, seenShots = new Set();
+const ballMat = c => bm[c] || (bm[c] = new THREE.MeshBasicMaterial({ color: c }));
+const splatG = new THREE.CircleGeometry(1, 10);
+let lastFire = 0;
+function spawnBall(v, mine) {
+  const m = new THREE.Mesh(gs(.13, 8, 6), ballMat(v.c)); m.position.set(v.x, v.y, v.z); scene.add(m);
+  balls.push({ m, x: v.x, y: v.y, z: v.z, dx: v.dx, dy: v.dy, dz: v.dz, c: v.c, mine: !!mine, life: 0 });
 }
+function splat(x, y, z, dx, dy, dz, c) {
+  let m;
+  if (splats.length >= 90) m = splats.shift(); else { m = new THREE.Mesh(splatG, null); scene.add(m); }
+  m.material = spm[c] || (spm[c] = new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  const s = .3 + Math.random() * .25; m.scale.set(s, s * (.7 + Math.random() * .6), 1);
+  if (y < .12) { m.position.set(x, .07, z); m.rotation.set(-Math.PI / 2, 0, Math.random() * 6); }
+  else { m.rotation.set(0, 0, 0); m.position.set(x - dx * .04, y - dy * .04, z - dz * .04); m.lookAt(x - dx, y - dy, z - dz); m.rotateZ(Math.random() * 6); }
+  splats.push(m);
+}
+function clearPaint() { splats.forEach(m => scene.remove(m)); splats.length = 0; balls.forEach(b => scene.remove(b.m)); balls.length = 0; }
+function updateBalls(dt) {
+  for (let i = balls.length - 1; i >= 0; i--) {
+    const b = balls[i]; let dead = false; const sp = 40, n = Math.max(1, Math.ceil(sp * dt / .25)), h = dt / n;
+    for (let k = 0; k < n && !dead; k++) {
+      b.x += b.dx * sp * h; b.y += b.dy * sp * h; b.z += b.dz * sp * h;
+      if (b.mine) for (const u of hiders()) {
+        if (caught[u] || !av[u]) continue;
+        const pp = av[u].position, def = state.phase === 'seek' && PROPS[skin[u]] ? PROPS[skin[u]] : null, r = (def ? def.r : .45) + .13, hh = def ? def.h : 1.8;
+        if (b.y > -.1 && b.y < hh && (b.x - pp.x) ** 2 + (b.z - pp.z) ** 2 < r * r) { set(ref(db, `rooms/${room}/caught/${u}`), b.c); toast(`${players[u]?.name || ''} ধরা পড়েছে!`); dead = true; break; }
+      }
+      if (!dead && solidAt(b.x, b.y, b.z)) { splat(b.x, b.y, b.z, b.dx, b.dy, b.dz, b.c); dead = true; }
+    }
+    b.life += dt;
+    if (dead || b.life > 1.6) { scene.remove(b.m); balls.splice(i, 1); } else b.m.position.set(b.x, b.y, b.z);
+  }
+}
+const vtmp = new THREE.Vector3();
+const aimPitch = () => Math.max(-.6, Math.min(.7, -(camPitch - .5) * 1.3));
+function fire() {
+  if (!room || state.phase !== 'seek' || !iAmSeeker() || !canMove()) return;
+  const t = performance.now(); if (t - lastFire < 200) return; lastFire = t;
+  cam.getWorldDirection(vtmp);
+  const hit = rayWorld(cam.position.x, cam.position.y, cam.position.z, vtmp.x, vtmp.y, vtmp.z, 55);
+  const ap = aimPitch(), cp = Math.cos(ap), mx = me.x - Math.sin(camYaw) * cp * .6, my = 1.4 + Math.sin(ap) * .6, mz = me.z - Math.cos(camYaw) * cp * .6;
+  let dx = hit.x - mx, dy = hit.y - my, dz = hit.z - mz; const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+  const key = uid + '_' + Date.now();
+  const data = { x: +mx.toFixed(2), y: +my.toFixed(2), z: +mz.toFixed(2), dx: +dx.toFixed(3), dy: +dy.toFixed(3), dz: +dz.toFixed(3), c: BALLC[Math.random() * BALLC.length | 0], t: now() };
+  seenShots.add(key); spawnBall(data, true); popSound();
+  set(ref(db, `rooms/${room}/shots/${key}`), data); setTimeout(() => remove(ref(db, `rooms/${room}/shots/${key}`)), 5000);
+}
+
 function collide(r) {
   for (const k of cols) { const ex = me.x - k.x, ez = me.z - k.z, m = k.r + r, d2 = ex * ex + ez * ez; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2); me.x = k.x + ex / d * m; me.z = k.z + ez / d * m; } }
   for (const b of boxes) {
@@ -511,45 +598,99 @@ function step(dt) {
   if (l > 1) { f /= l; r /= l; }
   const sp = iAmSeeker() && state.phase === 'seek' ? 6 : 5.2, sn = Math.sin(camYaw), cs = Math.cos(camYaw);
   const dx = -sn * f + cs * r, dz = -cs * f - sn * r;
-  me.x += dx * sp * dt; me.z += dz * sp * dt; me.ry = Math.atan2(dx, dz);
+  me.x += dx * sp * dt; me.z += dz * sp * dt; if (!(state.phase === 'seek' && iAmSeeker())) me.ry = Math.atan2(dx, dz);
   collide(.4);
   me.x = Math.max(-HALF, Math.min(HALF, me.x)); me.z = Math.max(-HALF, Math.min(HALF, me.z));
   return true;
 }
+const roomAt = (x, z) => { for (const r of rooms) if (x > r.x1 && x < r.x2 && z > r.z1 && z < r.z2) return r; return null; };
+const hbAt = (x, z) => { for (const h of hbs) if (x > h.x1 && x < h.x2 && z > h.z1 && z < h.z2) return h; return null; };
 const wallBlocked = (x, z) => { for (const b of boxes) if (b.wall && x > b.x1 - .3 && x < b.x2 + .3 && z > b.z1 - .3 && z < b.z2 + .3) return true; return false; };
 function camPlace(dt) {
-  const cp = Math.cos(camPitch), sp = Math.sin(camPitch), hx = Math.sin(camYaw) * cp, hz = Math.cos(camYaw) * cp;
-  let dist = 7.5;
-  for (let i = 1; i <= 14; i++) { const d = 7.5 * i / 14; if (1.4 + sp * d < 2.9 && wallBlocked(me.x + hx * d, me.z + hz * d)) { dist = Math.max(.9, 7.5 * (i - 1) / 14 - .3); break; } }
-  camDist = dist < camDist ? dist : camDist + (dist - camDist) * Math.min(1, 3 * dt);
-  cam.position.set(me.x + hx * camDist, 1.4 + sp * camDist, me.z + hz * camDist);
-  cam.lookAt(me.x, 1.3, me.z);
+  const shoot = state.phase === 'seek' && iAmSeeker(), sy = Math.sin(camYaw), cy = Math.cos(camYaw);
+  let vx, vy, vz, lx, ly, lz;
+  if (shoot) { // কাঁধের উপর দিয়ে নিশানা
+    const ap = aimPitch(), cp = Math.cos(ap);
+    vx = sy * 3.2 + cy * .6; vy = .5 - Math.sin(ap) * 1.2; vz = cy * 3.2 - sy * .6;
+    lx = me.x - sy * cp * 30; ly = 1.4 + Math.sin(ap) * 30; lz = me.z - cy * cp * 30;
+  } else {
+    const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+    vx = sy * cp * 7.5; vy = sp * 7.5; vz = cy * cp * 7.5; lx = me.x; ly = 1.3; lz = me.z;
+  }
+  const rm = roomAt(me.x, me.z), mh = hbAt(me.x, me.z);
+  // ঘরের ভেতরে থাকলে ক্যামেরা কখনো ঘরের বাইরে যাবে না
+  const free = (x, y, z) => rm
+    ? (x > rm.x1 + .35 && x < rm.x2 - .35 && z > rm.z1 + .35 && z < rm.z2 - .35 && y < 2.6)
+    : !(y < 2.9 && wallBlocked(x, z)) && !hbs.some(h => h !== mh && x > h.x1 && x < h.x2 && z > h.z1 && z < h.z2 && y < 4.8);
+  const len = Math.hypot(vx, vy, vz); let f = 1;
+  for (let i = 1; i <= 16; i++) { const q = i / 16; if (!free(me.x + vx * q, 1.4 + vy * q, me.z + vz * q)) { f = Math.max(.9 / len, (i - 1) / 16 - .04); break; } }
+  camF = f < camF ? f : camF + (f - camF) * Math.min(1, 3 * dt);
+  let qx = me.x + vx * camF, qy = 1.4 + vy * camF, qz = me.z + vz * camF;
+  if (rm) { qx = Math.max(rm.x1 + .2, Math.min(rm.x2 - .2, qx)); qz = Math.max(rm.z1 + .2, Math.min(rm.z2 - .2, qz)); qy = Math.min(qy, 2.5); }
+  cam.position.set(qx, qy, qz);
+  cam.lookAt(lx, ly, lz);
 }
 
-/* ---------- সংকেত "ডু!" ---------- */
-let AC;
+/* ---------- শব্দ, গান, সংকেত ---------- */
+let AC, music = localStorage.music !== 'off', mTimer = null, mStep = 0, mNext = 0, mOut = null, nb = null, hint = null, proxT = 0;
 function audio() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
-addEventListener('pointerdown', () => { try { audio(); } catch (e) {} });
-function beep(pan, gain) {
+addEventListener('pointerdown', () => { try { audio(); startMusic(); } catch (e) {} });
+function beep(pan, gain, f0 = 440, type = 'sine', dur = .34) {
   try {
     const a = audio(), o = a.createOscillator(), g = a.createGain(), T = a.currentTime;
-    o.type = 'sine'; o.frequency.setValueAtTime(440, T); o.frequency.exponentialRampToValueAtTime(230, T + .3);
-    g.gain.setValueAtTime(Math.max(.02, gain), T); g.gain.exponentialRampToValueAtTime(.001, T + .34); o.connect(g);
+    o.type = type; o.frequency.setValueAtTime(f0, T); o.frequency.exponentialRampToValueAtTime(f0 * .52, T + dur * .85);
+    g.gain.setValueAtTime(Math.max(.02, gain), T); g.gain.exponentialRampToValueAtTime(.001, T + dur); o.connect(g);
     if (a.createStereoPanner) { const p = a.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(a.destination); } else g.connect(a.destination);
-    o.start(T); o.stop(T + .36);
+    o.start(T); o.stop(T + dur + .03);
   } catch (e) {}
 }
-function playSignal() {
-  const rx = Math.cos(camYaw), rz = -Math.sin(camYaw);
-  for (const u of hiders()) {
-    if (caught[u]) continue;
-    if (u === uid) { beep(0, .25); continue; }
-    const p = pos[u]; if (!p) continue;
-    const dx = p.x - me.x, dz = p.z - me.z, d = Math.hypot(dx, dz) || 1;
-    beep(Math.max(-1, Math.min(1, (dx * rx + dz * rz) / d)), .7 * Math.exp(-d / 22));
-  }
+const popSound = () => beep(0, .25, 700, 'triangle', .1);
+const proxBeep = d => beep(0, .16, 1100 - d * 40, 'square', .07);
+const relAngle = () => Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)) - hint.ta;
+function playSignal() { // খোঁজকের জন্য ইঙ্গিত: কোন দিকে, কত দূরে
   const e = $('sig'); e.hidden = false; clearTimeout(e._t); e._t = setTimeout(() => e.hidden = true, 1300);
+  if (!iAmSeeker()) { if (hiders().includes(uid) && !caught[uid]) beep(0, .2); return; }
+  let best = null, bd = 1e9;
+  for (const u of hiders()) { const p = pos[u]; if (caught[u] || !p) continue; const d = Math.hypot(p.x - me.x, p.z - me.z); if (d < bd) { bd = d; best = p; } }
+  if (!best) return;
+  hint = { ta: Math.atan2(best.x - me.x, best.z - me.z) + (Math.random() - .5) * .7, until: performance.now() + 4500 };
+  const n = bd < 10 ? 4 : bd < 20 ? 3 : bd < 35 ? 2 : 1, f0 = 300 + Math.max(0, 40 - bd) * 8;
+  $('hd').textContent = `প্রায় ${bn(Math.max(5, Math.round(bd / 5) * 5))} মিটার`; $('hint').hidden = false;
+  for (let i = 0; i < n; i++) setTimeout(() => { if (hint) beep(Math.max(-1, Math.min(1, Math.sin(relAngle()))), .5, f0); }, i * 190);
 }
+function hintUpdate() {
+  if (!hint) return;
+  if (performance.now() > hint.until) { hint = null; $('hint').hidden = true; } else $('arr').style.transform = `rotate(${relAngle()}rad)`;
+}
+function proxCheck(t) { // কাছে কেউ থাকলে ফায়ার বাটন লাল হয়ে বিপ বিপ করে
+  const b = $('catch');
+  if (state.phase !== 'seek' || !iAmSeeker()) { b.classList.remove('hot'); return; }
+  let md = 1e9;
+  for (const u of hiders()) { const p = pos[u]; if (caught[u] || !p) continue; const d = Math.hypot(p.x - me.x, p.z - me.z); if (d < md) md = d; }
+  const near = md < 7; b.classList.toggle('hot', near);
+  if (near && t > proxT) { proxBeep(md); proxT = t + 260 + md * 110; }
+}
+/* ব্যাকগ্রাউন্ড গান (কোড দিয়ে বানানো, কোনো ফাইল লাগে না) */
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+function mTone(type, m, t, dur, vol) { const o = AC.createOscillator(), g = AC.createGain(); o.type = type; o.frequency.value = mtof(m); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0008, t + dur); o.connect(g); g.connect(mOut); o.start(t); o.stop(t + dur + .03); }
+function mKick(t) { const o = AC.createOscillator(), g = AC.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + .15); g.gain.setValueAtTime(.5, t); g.gain.exponentialRampToValueAtTime(.001, t + .2); o.connect(g); g.connect(mOut); o.start(t); o.stop(t + .22); }
+function mHat(t, v) {
+  if (!nb) { const len = Math.floor(AC.sampleRate * .04); nb = AC.createBuffer(1, len, AC.sampleRate); const d = nb.getChannelData(0); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len); }
+  const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain(); s.buffer = nb; f.type = 'highpass'; f.frequency.value = 6000; g.gain.value = v; s.connect(f); f.connect(g); g.connect(mOut); s.start(t);
+}
+const PENT = [0, 2, 4, 7, 9, 12], MINP = [0, 3, 5, 7, 10, 12], PAT = [0, 2, 4, 2, 5, 4, 2, 1];
+function mStepPlay(i, t) {
+  const minor = state.phase === 'seek', bar = (i >> 3) & 3, st = i & 7, r = (minor ? [-3, -7, 0, -5] : [0, -3, -7, -5])[bar], sc = minor ? MINP : PENT;
+  if (st === 0) for (const o of minor ? [0, 3, 7] : [0, 4, 7]) mTone('triangle', 60 + r + o, t, 1.5, .035);
+  if (st === 0 || st === 4) { mTone('sine', 48 + r, t, .45, .22); mKick(t); }
+  if (!(st === 3 && bar % 2)) mTone('triangle', 64 + r + sc[(PAT[st] + bar) % 6], t, .2, .08);
+  mHat(t, st % 2 ? .05 : .02);
+}
+function mSched() { const sp = 60 / (state.phase === 'seek' ? 126 : 108) / 2; while (mNext < AC.currentTime + .35) { mStepPlay(mStep, mNext); mNext += sp; mStep++; } }
+function startMusic() { if (!music || mTimer) return; const a = audio(); if (!mOut) { mOut = a.createGain(); mOut.gain.value = .35; mOut.connect(a.destination); } mNext = a.currentTime + .1; mTimer = setInterval(mSched, 120); }
+function stopMusic() { clearInterval(mTimer); mTimer = null; }
+$('mus').textContent = music ? '🎵' : '🔇';
+$('mus').onclick = () => { music = !music; localStorage.music = music ? 'on' : 'off'; $('mus').textContent = music ? '🎵' : '🔇'; music ? startMusic() : stopMusic(); };
 
 /* ---------- রেন্ডার লুপ ---------- */
 function resize() { renderer.setSize(innerWidth, innerHeight, false); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
@@ -557,9 +698,10 @@ addEventListener('resize', resize); resize();
 let last = performance.now();
 renderer.setAnimationLoop(() => {
   const t = performance.now(), dt = Math.max(.001, Math.min(.05, (t - last) / 1000)); last = t;
+  if (room && state.phase === 'seek' && iAmSeeker()) { const ny = Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)); if (Math.abs(Math.atan2(Math.sin(ny - me.ry), Math.cos(ny - me.ry))) > .05) { me.ry = ny; dirty = true; } }
   if (step(dt)) dirty = true;
   if (dirty && t - lastSend >= 100) sendPos(true);
-  updateAvatars(dt);
+  updateAvatars(dt); updateBalls(dt); proxCheck(t); hintUpdate();
   if (room) {
     camPlace(dt);
     if (state.phase === 'seek' && state.seekStart) { const k = Math.floor((now() - state.seekStart) / SIG_MS); if (k > lastSig) { lastSig = k; playSignal(); } }
