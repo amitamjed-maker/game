@@ -365,7 +365,7 @@ renderer.setPixelRatio(DPR0);
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
 renderer.shadowMap.enabled = !WEAK; renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xcfe9f5, 32, 100);
+scene.fog = new THREE.Fog(0xcfe9f5, 40, 135);
 const cam = new THREE.PerspectiveCamera(62, 1, .3, 200);
 scene.add(new THREE.HemisphereLight(0xe4f2ff, 0x7a9a52, 1.05));
 const sun = new THREE.DirectionalLight(0xfff0d0, 1.3); sun.position.set(40, 60, 25); sun.castShadow = !WEAK;
@@ -392,6 +392,9 @@ const gs = (r, w = 10, h = 8) => G[`s${r},${w},${h}`] || (G[`s${r},${w},${h}`] =
 const gk = (r, h, s = 8) => G[`k${r},${h},${s}`] || (G[`k${r},${h},${s}`] = new THREE.ConeGeometry(r, h, s));
 const gcap = (r, l) => G[`q${r},${l}`] || (G[`q${r},${l}`] = new THREE.CapsuleGeometry(r, l, 3, 8));
 const gp = () => G.p || (G.p = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+const gi = (r, d = 0) => G[`i${r},${d}`] || (G[`i${r},${d}`] = new THREE.IcosahedronGeometry(r, d));
+const spireG = new THREE.ConeGeometry(1.85, 3.4, 4).rotateY(Math.PI / 4);
+const mills = [];
 const gcirc = new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2);
 const roofG = new THREE.ConeGeometry(1, 1.8, 4).rotateY(Math.PI / 4);
 const leafG = new THREE.BoxGeometry(2.2, .05, .45).translate(1.1, 0, 0);
@@ -413,20 +416,26 @@ const PROPS = {
   stool: prop('মোড়া', [P(gc(.3, .3, .45, 10), 0, .225, 0, 0xc58b4a)], .35, .5, [.6, .6]),
   bench: prop('বেঞ্চ', [P(gb(1.6, .08, .5), 0, .5, 0, WD), P(gb(1.6, .4, .06), 0, .8, -.22, WD), ...legs(.5, .07, .7, .18, 0x6b4423)], .9, 1, [1.6, .5]),
   bucket: prop('বালতি', [P(gc(.3, .24, .5, 10), 0, .25, 0, 0xd1453b)], .35, .55, [.6, .6]),
-  tree: prop('গাছ', [P(gc(.28, .4, 3, 6), 0, 1.5, 0, 0x6b4423), P(gs(1.8, 8, 6), 0, 3.8, 0, 0x2f7a35), P(gs(1.3, 8, 6), .9, 3.2, .3, 0x3a8a3c), P(gs(1.2, 8, 6), -.8, 3.4, -.5, 0x2a6b30)], 1, 5, [1, 1]),
-  bush: prop('ঝোপ', [P(gs(1.3, 8, 6), 0, .9, 0, 0x3f7d3a, [1, .85, 1]), P(gs(.8, 8, 6), .9, .6, .4, 0x4c8c44)], 1.2, 1.4, [1, 1]),
+  tree: prop('গাছ', [P(gc(.28, .4, 3, 6), 0, 1.5, 0, 0x6b4423), P(gi(1.9, 0), 0, 3.9, 0, 0x3f8a3a, [1, .9, 1]), P(gi(1.35, 0), .95, 3.2, .3, 0x4f9a42), P(gi(1.25, 0), -.85, 3.4, -.5, 0x347a34)], 1, 5, [1, 1]),
+  pine: prop('পাইন গাছ', [P(gc(.25, .35, 1.4, 6), 0, .7, 0, 0x5a3a1e), P(gk(1.6, 2.4, 7), 0, 2.1, 0, 0x2f6b3a), P(gk(1.25, 2.1, 7), 0, 3.3, 0, 0x3a7d42), P(gk(.85, 1.9, 7), 0, 4.4, 0, 0x4a8f4a)], 1, 5.4, [1, 1]),
+  well: prop('কুয়া', [P(gc(.9, .95, .7, 10), 0, .35, 0, 0xb0a89a), P(gc(.62, .62, .72, 10), 0, .36, 0, 0x3a78a8), P(gb(.12, 1.7, .12), -.78, 1.55, 0, 0x7a4a24), P(gb(.12, 1.7, .12), .78, 1.55, 0, 0x7a4a24), P(gb(1.7, .07, .07), 0, 2.0, 0, 0x5a3a1e), P(gc(.15, .15, .22, 8), 0, 1.5, 0, 0x6b4423), P(roofG, 0, 3.05, 0, 0x9a5a30, [1.5, .75, 1.5])], 1, 3.6, [1.9, 1.9]),
+  barrel: prop('পিপা', [P(gc(.4, .4, .9, 10), 0, .45, 0, 0x8a5a2b), P(gc(.42, .42, .07, 10), 0, .22, 0, 0x3a2a1a), P(gc(.42, .42, .07, 10), 0, .68, 0, 0x3a2a1a)], .45, .9, [.8, .8]),
+  crate: prop('বাক্স', [P(gb(.9, .9, .9), 0, .45, 0, 0xb98a52), P(gb(.96, .1, .96), 0, .08, 0, 0x7a5426), P(gb(.96, .1, .96), 0, .82, 0, 0x7a5426)], .6, .9, [.9, .9]),
+  pig: prop('শূকর', [P(gb(1, .55, .55), 0, .55, 0, 0xf2a0b0), P(gb(.42, .42, .45), .65, .65, 0, 0xf2a0b0), P(gb(.14, .2, .26), .9, .6, 0, 0xe8828f), ...legs(.3, .14, .35, .18, 0xe8828f), P(gb(.1, .16, .12), .62, .92, .14, 0xe8828f), P(gb(.1, .16, .12), .62, .92, -.14, 0xe8828f)], .7, 1, [1.4, .6]),
+  cow: prop('গরু', [P(gb(1.5, .8, .7), 0, 1, 0, 0xf5f5f0), P(gb(.5, .5, .72), -.2, 1.08, 0, 0x2a2a2a), P(gb(.5, .55, .5), 1.0, 1.3, 0, 0xf5f5f0), P(gb(.2, .22, .52), 1.28, 1.2, 0, 0xe8b0a0), ...legs(.6, .16, .55, .24, 0xe0e0d8), P(gb(.08, .2, .08), 1.0, 1.65, .2, 0xd8d0b0), P(gb(.08, .2, .08), 1.0, 1.65, -.2, 0xd8d0b0)], 1, 1.7, [1.6, .8]),
+  bush: prop('ঝোপ', [P(gi(1.3, 0), 0, .8, 0, 0x3f7d3a, [1, .8, 1]), P(gi(.8, 0), .9, .55, .4, 0x4c8c44)], 1.2, 1.4, [1, 1]),
   hay: prop('খড়ের গাদা', [P(gk(1.6, 2.6, 8), 0, 1.3, 0, 0xe0c060)], 1.3, 2.6, [1, 1]),
   pot: prop('কলস', [P(gs(.5, 10, 8), 0, .5, 0, 0xb5562e), P(gc(.2, .3, .25, 10), 0, 1.05, 0, 0xb5562e)], .5, 1.3, [1, 1]),
   drum: prop('ড্রাম', [P(gc(.45, .45, .9, 10), 0, .45, 0, 0x2f5fa0)], .5, .9, [1, 1]),
-  rock: prop('পাথর', [P(gs(.8, 7, 5), 0, .4, 0, 0x8a8d90, [1, .7, 1])], .75, .8, [1, 1])
+  rock: prop('পাথর', [P(gi(.8, 0), 0, .4, 0, 0x8a8d90, [1, .7, 1])], .75, .8, [1, 1])
 };
 const rng = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const R = rng(20261119);
-const BLOB = { tree: 2.3, bush: 1.5, hay: 1.8, rock: 1, bench: 1.2, chair: .6, table: 1.1, sofa: 1.2 };
+const BLOB = { pine: 2.2, well: 1.6, pig: 1, cow: 1.4, tree: 2.3, bush: 1.5, hay: 1.8, rock: 1, bench: 1.2, chair: .6, table: 1.1, sofa: 1.2 };
 // সব স্থির জিনিস একটা মেশে জোড়া লাগানো হয় (১টা draw call) — তাই ৬০ FPS
 const SP = [], tm = new THREE.Matrix4(), tq = new THREE.Quaternion(), te = new THREE.Euler(), tv = new THREE.Vector3(), ts = new THREE.Vector3(), tc = new THREE.Color();
 function addS(g, col, x, y, z, ry = 0, sx = 1, sy = 1, sz = 1, rz = 0) {
-  const gg = g.clone(); te.set(0, ry, rz, 'YZX'); tq.setFromEuler(te); tm.compose(tv.set(x, y, z), tq, ts.set(sx, sy, sz)); gg.applyMatrix4(tm);
+  const gg = g.clone(); if (!gg.index) gg.setIndex([...Array(gg.attributes.position.count).keys()]); te.set(0, ry, rz, 'YZX'); tq.setFromEuler(te); tm.compose(tv.set(x, y, z), tq, ts.set(sx, sy, sz)); gg.applyMatrix4(tm);
   const n = gg.attributes.position.count, a = new Float32Array(n * 3), j = .93 + R() * .14; tc.set(col);
   for (let i = 0; i < n; i++) { a[i * 3] = tc.r * j; a[i * 3 + 1] = tc.g * j; a[i * 3 + 2] = tc.b * j; }
   gg.setAttribute('color', new THREE.BufferAttribute(a, 3)); SP.push(gg);
@@ -442,10 +451,18 @@ function putProp(type, x, z, ry = 0, sc = 1) {
   for (let i = 0; i < n; i++) { const x = pa.getX(i), z = pa.getZ(i), v = (Math.sin(x * .21) + Math.sin(z * .17) + Math.sin((x + z) * .09) + Math.sin(x * .05) * Math.cos(z * .07)) / 4 * .5 + .5 + (((Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1) * .09); c.copy(c1).lerp(c2, v); a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
   g.setAttribute('color', new THREE.BufferAttribute(a, 3)); SP.push(g);
 }
-addS(gcirc, 0x70a050, 0, -.05, 0, 0, 170, 1, 170); // সীমানার বাইরের সবুজ মাঠ (ফাঁকা দেখাবে না)
+addS(gcirc, 0x70a050, 0, -.05, 0, 0, 170, 1, 170);
+for (let i = 0; i < 34; i++) { // দূরের সবুজ পাহাড় (শুধু সাজ, খেলার জায়গার বাইরে)
+  const a = i / 34 * 6.283 + R() * .15, far = i % 3 === 0, d = far ? 100 + R() * 14 : 72 + R() * 18, sx = far ? 18 + R() * 10 : 11 + R() * 7, sy = far ? 16 + R() * 10 : 6 + R() * 7;
+  addS(gi(1, 1), far ? 0x7fa8b8 : [0x5f9a47, 0x6aa84f, 0x4f8a45][i % 3], Math.cos(a) * d, 0, Math.sin(a) * d, R() * 6, sx, sy, sx * .9);
+}
+for (let i = 0; i < 40; i++) { // রাস্তার ধারে ছোট পাথর
+  const onX = R() < .5, t = (R() * 2 - 1) * 40, o = (R() < .5 ? -1 : 1) * (2.2 + R() * .5), x = onX ? t : o, z = onX ? o : t, s = .12 + R() * .14;
+  addS(gi(1, 0), 0x8f9296, x, s * .4, z, R() * 6, s, s * .6, s);
+} // সীমানার বাইরের সবুজ মাঠ (ফাঁকা দেখাবে না)
 // রাস্তা, উঠান, পুকুর, ধানক্ষেত, ঘাট, নৌকা
-addS(gp(), 0xc9a46a, 0, .02, 0, 0, 86, 1, 5); addS(gp(), 0xc9a46a, 0, .02, 0, 0, 5, 1, 86);
-addS(gcirc, 0xd2b27a, 0, .022, 0, 0, 9, 1, 9);
+addS(gp(), 0xb98f5e, 0, .02, 0, 0, 86, 1, 5); addS(gp(), 0xb98f5e, 0, .02, 0, 0, 5, 1, 86);
+addS(gcirc, 0xc4a070, 0, .022, 0, 0, 9, 1, 9);
 const PX = 23, PZ = -19, PR = 8; // পুকুর
 addS(gcirc, 0xd8c58a, PX, .025, PZ, 0, PR + .9, 1, PR + .9); // পুকুরের পানি আলাদা মেশ (নিচে), যাতে ঢেউ খেলে
 addS(gp(), 0xaac85a, -31, .02, -31, 0, 14, 1, 10); addS(gp(), 0xaac85a, 31, .02, 31, 0, 14, 1, 10);
@@ -455,7 +472,7 @@ addS(gb(3.2, .35, 1.1), WD, PX + 4, .15, PZ - 5, .4);
 const boxes = [], hbs = [], rooms = [], cols = [{ x: PX, z: PZ, r: PR + 1, h: 0 }];
 const resv = [{ x: PX, z: PZ, r: PR + 2 }, { x: -31, z: -31, r: 9 }, { x: 31, z: 31, r: 9 }, { x: 0, z: 0, r: 10 }];
 function spot(rad, gap, lim = 32, rc = 0) {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     const x = (R() * 2 - 1) * lim, z = (R() * 2 - 1) * lim;
     if (rc ? (Math.abs(x) < rad || Math.abs(z) < rad) : (Math.abs(x) < 3.5 || Math.abs(z) < 3.5)) continue;
     if (resv.every(c => Math.hypot(x - c.x, z - c.z) > c.r + rad + gap)) { resv.push({ x, z, r: rad }); return { x, z }; }
@@ -463,13 +480,20 @@ function spot(rad, gap, lim = 32, rc = 0) {
   return null;
 }
 for (let i = 0; i < 8; i++) { addS(gp(), 0x95b44a, -31, .025, -35.6 + i * 1.3, 0, 13, 1, .3); addS(gp(), 0x95b44a, 31, .025, 26.4 + i * 1.3, 0, 13, 1, .3); }
+for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283 + R() * .2, r = PR + .5 + R() * .7, s = .35 + R() * .4; addS(gi(1, 0), 0x8d9094, PX + Math.cos(a) * r, s * .35, PZ + Math.sin(a) * r, R() * 6, s, s * .7, s); }
+for (let i = 0; i < 26; i++) { const a = R() * 6.283, r = PR + .2 + R() * 1.2; for (let j = 0; j < 3; j++) addS(gk(.06, 1.1 + R() * .5, 4), 0x6f9a3a, PX + Math.cos(a) * r + j * .12, .55, PZ + Math.sin(a) * r, 0, 1, 1, 1, (R() - .5) * .3); }
 for (let i = 0; i < 8; i++) { const a = i * .8, r = 2 + (i % 3) * 1.8; addS(gcirc, 0x3f9d4a, PX + Math.cos(a) * r, .035, PZ + Math.sin(a) * r, 0, .5, 1, .5); }
 function house(cx, cz, k, W, D, wc, rc) {
   const ry = k * Math.PI / 2, c = Math.round(Math.cos(ry)), s = Math.round(Math.sin(ry)), H = 2.8, odd = k & 1;
+  const wcol = new THREE.Color(wc), LOG = wcol.r + wcol.g + wcol.b < 1.1, sc = wcol.clone().multiplyScalar(LOG ? .68 : .42).getHex();
   const wp = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
   const wall = (x1, z1, x2, z2) => {
     const w = Math.abs(x2 - x1) || .25, d = Math.abs(z2 - z1) || .25, [wx, wz] = wp((x1 + x2) / 2, (z1 + z2) / 2);
     addS(gb(w, H, d), wc, wx, H / 2, wz, ry);
+    if (LOG) { for (let y = .32; y < H; y += .46) addS(gb(w + .1, .09, d + .1), sc, wx, y, wz, ry); } // কাঠের গুঁড়ির সারি
+    else { const lg = w > d, L = lg ? w : d, n = Math.max(1, Math.round(L / 2.2)); // আধা-কাঠের ফ্রেম
+      for (let i = 0; i <= n; i++) { const o = -L / 2 + i * L / n, [bx, bz] = wp((x1 + x2) / 2 + (lg ? o : 0), (z1 + z2) / 2 + (lg ? 0 : o)); addS(gb(lg ? .22 : w + .1, H, lg ? d + .1 : .22), sc, bx, H / 2, bz, ry); }
+      addS(gb(w + .1, .2, d + .1), sc, wx, .12, wz, ry); addS(gb(w + .1, .2, d + .1), sc, wx, H - .1, wz, ry); }
     const hw = (odd ? d : w) / 2, hd = (odd ? w : d) / 2; boxes.push({ x1: wx - hw, x2: wx + hw, z1: wz - hd, z2: wz + hd, wall: 1, h: H });
   };
   { const [bx, bz] = wp(.7, .7); addS(gp(), 0x497c35, bx, .027, bz, ry, W + 2.2, 1, D + 2.2); }
@@ -483,7 +507,8 @@ function house(cx, cz, k, W, D, wc, rc) {
     const [a, b] = wp(W / 4, .3); addS(gp(), 0x6e4128, a, .05, b, ry, 3.6, 1, 2.6); addS(gp(), 0xa8683a, a, .06, b, ry, 3.0, 1, 2.0);
     const [e, f] = wp(-W / 2 + 2.6, -D / 2 + 2.6); addS(gp(), 0x7a5a3e, e, .05, f, ry, 3.4, 1, 2.2); }
   addS(roofG, rc, cx, H + .9, cz, ry, (W / 2 + .55) / .7071, 1, (D / 2 + .55) / .7071);
-  { const [x, z] = wp(W / 4, -D / 4); addS(gb(.6, 1.5, .6), 0x8a4b3a, x, H + 1.1, z, ry); }
+  { const [x, z] = wp(W / 4, -D / 4); addS(gb(.6, 1.5, .6), 0x8d8a84, x, H + 1.1, z, ry); addS(gb(.8, .15, .8), 0x5a5a58, x, H + 1.9, z, ry); }
+  { const [x, z] = wp(-2.4, D / 2 + .7); putProp('barrel', x, z, ry); cols.push({ x, z, r: .45, h: .9 }); const [a, b] = wp(2.4, D / 2 + .7); putProp('crate', a, b, ry + .3); cols.push({ x: a, z: b, r: .55, h: .9 }); }
   const win = (lx, lz, an, ix, iz) => { // কাঠের ফ্রেম + কাচ + ভেতরে লাল পর্দা
     for (const sd of [-1, 1]) {
       const [x, z] = wp(lx + ix * sd * .14, lz + iz * sd * .14); addS(gb(1.5, 1.3, .06), 0x8a5a2b, x, 1.6, z, ry + an);
@@ -507,14 +532,53 @@ function house(cx, cz, k, W, D, wc, rc) {
   hbs.push({ x1: cx - hx - .55, x2: cx + hx + .55, z1: cz - hz - .55, z2: cz + hz + .55, cx, cz, hw: hx + .55, hd: hz + .55 });
   rooms.push({ x1: cx - hx + .13, x2: cx + hx - .13, z1: cz - hz + .13, z2: cz + hz - .13 });
 }
-const wallCols = Array(5).fill(0xdcdcdf), roofCols = Array(4).fill(0x9a4f2f); // সব ঘর একই স্ট্যান্ডার্ড
+{ // গির্জা (সোনালি গম্বুজ সহ)
+  const p = spot(6.8, 1, 28, 1);
+  if (p) { const x = p.x, z = p.z, dk = 0x6a3a22, gold = 0xf2c14e;
+    addS(gp(), 0xb7a888, x, .03, z + 2, 0, 12, 1, 15);
+    addS(gb(6, 4, 8), 0xe2d6b4, x, 2, z); addS(roofG, 0x7a4a2e, x, 4 + .9 * 1.4, z, 0, 4.95, 1.4, 6.36);
+    for (let y = .3; y < 4; y += .9) addS(gb(6.1, .12, 8.1), 0xc9b98e, x, y, z);
+    addS(gb(2.6, 8, 2.6), 0x9a6a3c, x, 4, z + 5.1); for (let y = .3; y < 8; y += .5) addS(gb(2.7, .08, 2.7), 0x6a4526, x, y, z + 5.1);
+    addS(gb(1.1, 1.3, .12), 0x2a1c10, x, 6.6, z + 6.45); addS(spireG, dk, x, 8 + 1.7, z + 5.1); addS(gs(.45, 8, 6), gold, x, 11.7, z + 5.1);
+    addS(gb(.1, .9, .1), gold, x, 12.55, z + 5.1); addS(gb(.5, .1, .1), gold, x, 12.7, z + 5.1);
+    addS(gb(1.4, 2.2, .12), 0x5a3a1e, x, 1.1, z + 6.45); addS(gb(2.2, .3, .6), 0xb0a690, x, .15, z + 6.9);
+    for (const sx of [-1, 1]) for (const dz of [-1.8, 1]) addS(gb(.12, 1.5, .9), 0x9cc8e0, x + sx * 3.04, 2.1, z + dz);
+    boxes.push({ x1: x - 3, x2: x + 3, z1: z - 4, z2: z + 3.9, h: 4, wall: 1 }, { x1: x - 1.3, x2: x + 1.3, z1: z + 3.8, z2: z + 6.4, h: 11.5, wall: 1 });
+  }
+}
+{ // বায়ুকল (পাখা ঘোরে)
+  const p = spot(4.5, 1, 28, 1);
+  if (p) { const x = p.x, z = p.z;
+    addS(gc(1.6, 2.4, 5, 8), 0x9a6a3c, x, 2.5, z); for (let y = .4; y < 5; y += .55) addS(gc(2.4 - y * .16 + .08, 2.4 - y * .16 + .08, .08, 8), 0x6a4526, x, y, z);
+    addS(gk(2.1, 2.2, 8), 0x6e3f26, x, 6.1, z); addS(gb(.9, 1.5, .1), 0x4a2c18, x, .75, z + 2.3);
+    const g = new THREE.Group(), bm = new THREE.MeshLambertMaterial({ color: 0x7a4a2e }), sm = new THREE.MeshLambertMaterial({ color: 0xeee0b8, side: THREE.DoubleSide });
+    for (let k = 0; k < 4; k++) { const arm = new THREE.Mesh(new THREE.BoxGeometry(.3, 5.4, .12).translate(0, 2.7, 0), bm), sail = new THREE.Mesh(new THREE.BoxGeometry(1.2, 3.6, .05).translate(.75, 2.9, .05), sm); arm.rotation.z = sail.rotation.z = k * Math.PI / 2; arm.castShadow = sail.castShadow = true; g.add(arm, sail); }
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(.38, 8, 6), bm)); g.position.set(x, 5.1, z + 1.9); scene.add(g); mills.push(g);
+    cols.push({ x, z, r: 2.5, h: 6 });
+  }
+}
+{ // বেড়া ঘেরা গোয়াল: গরু, শূকর, খড়
+  const p = spot(6.8, 1, 28, 1);
+  if (p) { const hs = 4.5, post = 0x6b4a2a, rail = 0x9a7040, fx = p.x, fz = p.z;
+    addS(gp(), 0x78b650, fx, .026, fz, 0, hs * 2, 1, hs * 2);
+    for (let s = 0; s < 4; s++) { const aX = s < 2, off = (s & 1 ? 1 : -1) * hs;
+      for (let i = 0; i <= 6; i++) { const t = -hs + i * 1.5, x = fx + (aX ? t : off), z = fz + (aX ? off : t); addS(gc(.09, .11, 1.35, 5), post, x, .67, z); addS(gc(.13, .13, .05, 5), 0xc8a96a, x, .78, z); }
+      for (let i = 0; i < 6; i++) { const t = -hs + (i + .5) * 1.5; if (s === 1 && Math.abs(t) < 1.4) continue;
+        const x = fx + (aX ? t : off), z = fz + (aX ? off : t), ry = aX ? 0 : Math.PI / 2;
+        addS(gb(1.5, .09, .07), rail, x, .5, z, ry); addS(gb(1.5, .09, .07), rail, x, .95, z, ry);
+        boxes.push({ x1: x - (aX ? .75 : .1), x2: x + (aX ? .75 : .1), z1: z - (aX ? .1 : .75), z2: z + (aX ? .1 : .75), h: 1.2 }); } }
+    for (const [t, dx, dz, r] of [['cow', -1.5, -1.2, 1], ['cow', 1.8, 1.4, .95], ['pig', 1.8, -1.8, .8], ['pig', -1.2, 1.6, .8]]) { putProp(t, fx + dx, fz + dz, R() * 6, r); cols.push({ x: fx + dx, z: fz + dz, r: .7 * r, h: 1.5 }); }
+    putProp('hay', fx - 3, fz - 3, 0, .8); cols.push({ x: fx - 3, z: fz - 3, r: 1.1, h: 2 });
+  }
+}
+const wallCols = [0x9a6a3c, 0x8a5a30, 0xe2d6b4, 0xa8743f, 0xd6c49a], roofCols = [0x7a4a2e, 0xa84a2a, 0x6e4228, 0x8a3f28];
 for (let i = 0; i < 9; i++) {
   const W = 12, D = 10, p = spot(Math.max(W, D) / 2 + 2.9, .3, 30, 1);
   if (p) house(p.x, p.z, R() * 4 | 0, W, D, wallCols[i % 5], roofCols[i % 4]);
 }
 const inHb = (x, z, m = 0) => hbs.some(h => x > h.x1 - m && x < h.x2 + m && z > h.z1 - m && z < h.z2 + m);
-for (let i = 0; i < 16; i++) { const p = spot(1.2, .8); if (p) { putProp('tree', p.x, p.z, R() * 6, .9 + R() * .5); cols.push({ x: p.x, z: p.z, r: .55, h: 5 }); } }
-for (let i = -42; i <= 42; i += 6) for (const [x, z] of [[i, 43], [i, -43], [43, i], [-43, i]]) putProp('tree', x, z, R() * 6, 1.2);
+for (let i = 0; i < 16; i++) { const p = spot(1.2, .8); if (p) { putProp(i % 2 ? 'pine' : 'tree', p.x, p.z, R() * 6, .9 + R() * .5); cols.push({ x: p.x, z: p.z, r: .55, h: 5 }); } }
+for (let i = -42; i <= 42; i += 6) for (const [x, z] of [[i, 43], [i, -43], [43, i], [-43, i]]) putProp((i / 6 + x + z) % 2 ? 'tree' : 'pine', x, z, R() * 6, 1.2 + R() * .3);
 for (let i = 0; i < 7; i++) { // নারকেল গাছ
   const p = spot(1, .8); if (!p) continue; const h = 5 + R() * 1.5;
   addS(gc(.13, .22, h, 6), 0x8a6a45, p.x, h / 2, p.z);
@@ -531,13 +595,13 @@ for (let i = 0; i < 4; i++) { const p = spot(.8, .5), sc = .7 + R() * .8; if (p)
 for (let i = 0; i < 3; i++) { const p = spot(1.3, .8); if (p) { putProp('bench', p.x, p.z, R() * 6.28); cols.push({ x: p.x, z: p.z, r: .9, h: 1 }); } }
 for (let i = 0; i < 16; i++) { const p = spot(1.5, .3); if (p) putProp('bush', p.x, p.z, R() * 6, .9 + R() * .4); }
 for (const [x, z] of [[4.5, 18], [-4.5, -18], [4.5, -18], [-4.5, 18], [18, 4.5], [-18, -4.5], [18, -4.5], [-18, 4.5]]) { // রাস্তার বাতি
-  addS(gc(.06, .08, 4, 6), 0x444444, x, 2, z); addS(gs(.22, 8, 6), 0xffe9a0, x, 4.1, z); cols.push({ x, z, r: .3, h: 4 });
+  addS(gc(.09, .11, 4, 6), 0x6b4423, x, 2, z); addS(gb(.5, .08, .5), 0x5a3a1e, x, 3.95, z); addS(gb(.34, .42, .34), 0xffe08a, x, 4.2, z); addS(gk(.32, .3, 4), 0x5a3a1e, x, 4.55, z, .78); cols.push({ x, z, r: .3, h: 4 });
 }
 const FLW = [0xff5a5a, 0xffd84a, 0xff9ad5, 0xffffff, 0xb07aff];
 for (let i = 0; i < 20; i++) { const p = spot(.5, .2); if (!p) continue; for (let j = 0; j < 5; j++) addS(gs(.1, 6, 5), FLW[(i + j) % 5], p.x + (R() - .5) * .7, .15, p.z + (R() - .5) * .7); }
 const GRN = [0x4f8f3a, 0x6fae48, 0x3f7d33];
 for (let i = 0; i < 100; i++) { const x = (R() * 2 - 1) * 38, z = (R() * 2 - 1) * 38; if (inHb(x, z, 1) || Math.hypot(x - PX, z - PZ) < PR + 1.6 || Math.abs(x) < 3 || Math.abs(z) < 3) continue; addS(gk(.1, .55, 4), GRN[i % 3], x, .27, z, R() * 6); }
-{ const w = spot(1.6, 1); if (w) { addS(gc(.9, 1, .7, 12), 0x9a9a9a, w.x, .35, w.z); addS(gc(.55, .55, .72, 12), 0x2a4a6a, w.x, .36, w.z); cols.push({ x: w.x, z: w.z, r: 1.1, h: .7 }); } }
+for (const w of [spot(1.6, 1), { x: 6.5, z: 6.5 }]) if (w) { putProp('well', w.x, w.z, R() * 6); cols.push({ x: w.x, z: w.z, r: 1.1, h: 3.4 }); }
 function solidAt(x, y, z) {
   if (y <= 0) return 1;
   for (const b of boxes) if (y < b.h && x > b.x1 && x < b.x2 && z > b.z1 && z < b.z2) return 1;
@@ -551,7 +615,7 @@ function rayWorld(ox, oy, oz, dx, dy, dz, max) {
 }
 const worldGeo = mergeGeometries(SP, false);
 if (!worldGeo) throw new Error('world merge failed');
-const world = new THREE.Mesh(worldGeo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+const world = new THREE.Mesh(worldGeo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, flatShading: true }));
 world.receiveShadow = true; world.castShadow = true;
 scene.add(world); SP.length = 0;
 { // পুকুরের পানি: আলাদা মেশ, ঢেউ আর ঝিলিক সহ
@@ -1022,11 +1086,11 @@ renderer.setAnimationLoop(() => {
   { const T = t / 1000; // পানির ঢেউ, মেঘের ভেসে যাওয়া
     water.m.emissiveIntensity = .3 + Math.sin(T * 1.7) * .12;
     ripples.forEach((r, i) => { const k = ((T * .22 + i / 3) % 1); r.scale.set(PR * (.25 + k * .75), 1, PR * (.25 + k * .75)); r.material.opacity = .45 * (1 - k); });
-    clouds.forEach(c => { c.position.x += c.userData.sp * dt; if (c.position.x > 130) c.position.x = -130; }); }
+    clouds.forEach(c => { c.position.x += c.userData.sp * dt; if (c.position.x > 130) c.position.x = -130; }); mills.forEach(g => g.rotation.z += dt * .7); }
   if (room) {
     if (state.phase === 'ludo') ludoCam(dt); else camPlace(dt);
     if (state.phase === 'seek' && state.seekStart) { const k = Math.floor((now() - state.seekStart) / SIG_MS); if (k > lastSig) { lastSig = k; playSignal(); } }
   } else { const a = t / 7000; cam.position.set(Math.cos(a) * 36, 16, Math.sin(a) * 36); cam.lookAt(0, 2, 0); }
   renderer.render(scene, cam);
-  const bt = document.getElementById('boot'); if (bt) bt.remove();
+  const bt = document.getElementById('boot'); if (bt && !bt.classList.contains('out') && t > 3200) { bt.classList.add('out'); setTimeout(() => bt.remove(), 800); } // লোগো অন্তত ~৩ সেকেন্ড দেখায়
 });
