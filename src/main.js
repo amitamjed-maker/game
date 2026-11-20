@@ -20,7 +20,8 @@ const now = () => Date.now() + offset;
 
 let room = null, players = {}, state = { phase: 'lobby' }, choices = {}, caught = {}, pos = {}, skin = {}, online = {}, unsubs = [];
 const sorted = () => Object.entries(players).sort((a, b) => a[1].joined - b[1].joined || (a[0] < b[0] ? -1 : 1));
-const isHost = () => sorted()[0]?.[0] === uid;
+const isBot = u => String(u).startsWith('bot_');
+const isHost = () => sorted().find(e => !isBot(e[0]))?.[0] === uid;
 const iAmSeeker = () => state.seeker === uid;
 const hiders = () => (state.parts || []).filter(u => players[u] && u !== state.seeker);
 
@@ -62,7 +63,7 @@ async function joinRoom(code, quiet) {
   code = code.trim().toUpperCase();
   if (!code) { toast('রুমের ঠিকানা লিখুন'); return false; }
   const [ps, st] = await Promise.all([get(ref(db, `rooms/${code}/players`)), get(ref(db, `rooms/${code}/state`))]);
-  const cnt = Object.keys(ps.val() || {}).length;
+  const pv = ps.val() || {}, cnt = Object.keys(pv).some(u => !isBot(u)) ? Object.keys(pv).length : 0;
   if (cnt >= MAX) { if (!quiet) toast('রুম ভরে গেছে (সর্বোচ্চ ১৮ জন)'); return false; }
   if (cnt > 0 && st.val() && st.val().phase !== 'lobby') { if (!quiet) toast('এখানে খেলা চলছে, একটু পরে আসুন'); return false; }
   if (room) leaveRoom();
@@ -93,11 +94,12 @@ function subscribe(code) {
 function leaveRoom() {
   unsubs.forEach(f => f()); unsubs = [];
   if (room) {
+    if (Object.keys(players).every(u => u === uid || isBot(u))) remove(ref(db, 'rooms/' + room));
     remove(ref(db, `rooms/${room}/players/${uid}`)); remove(ref(db, `rooms/${room}/pos/${uid}`)); remove(ref(db, `rooms/${room}/choices/${uid}`)); remove(ref(db, `rooms/${room}/skin/${uid}`));
     update(ref(db, 'online/' + uid), { room: '' });
   }
   room = null; players = {}; pos = {}; skin = {}; choices = {}; caught = {}; state = { phase: 'lobby' };
-  syncAvatars(); clearPaint(); seenShots.clear();
+  if (L) ludoExit(); syncAvatars(); clearPaint(); seenShots.clear();
   ['hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins', 'xh', 'hint'].forEach(i => $(i).hidden = true);
   $('menu').hidden = false;
 }
@@ -153,12 +155,19 @@ $('code').onclick = () => {
   if (navigator.share) navigator.share({ text: t }).catch(() => {});
   else navigator.clipboard?.writeText(room).then(() => toast('ঠিকানা কপি হয়েছে'));
 };
-$('start').onclick = () => {
+function startGame(mode) {
   if (!isHost()) return;
-  const ids = Object.keys(players);
-  if (ids.length < 2) return toast('কমপক্ষে ২ জন লাগবে');
-  update(ref(db, 'rooms/' + room), { state: { phase: 'toss', round: 1, alive: ids, parts: ids, deadline: now() + TOSS_MS, msg: 'সবাই হেড অথবা টেল বেছে নিন' }, choices: null, caught: null });
-};
+  const ids = sorted().map(e => e[0]);
+  if (ids.length < 2) return toast('কমপক্ষে ২ জন লাগবে — কম্পিউটার যোগ করুন');
+  const R0 = ref(db, 'rooms/' + room);
+  if (mode === 'ludo') return update(R0, { state: { phase: 'ludo', mode: 'ludo', parts: ids.slice(0, 6), seeker: ids[0] }, ludo: null, choices: null, caught: null });
+  update(R0, { state: { ...(mode === 'story' ? { mode: 'story' } : {}), phase: 'toss', round: 1, alive: ids, parts: ids, deadline: now() + TOSS_MS, msg: 'সবাই হেড অথবা টেল বেছে নিন' }, choices: null, caught: null, ludo: null });
+}
+$('start').onclick = () => startGame('story'); $('startL').onclick = () => startGame('ludo'); $('startH').onclick = () => startGame('hide');
+function addBot(k) { if (!room) return; const id = 'bot_' + Math.random().toString(36).slice(2, 6); set(ref(db, `rooms/${room}/players/${id}`), { name: '🤖 কম্পিউটার ' + bn(k), joined: now() + k }); }
+$('addbot').onclick = () => { if (!isHost() || state.phase !== 'lobby') return; if (Object.keys(players).length >= MAX) return toast('রুম ভরে গেছে'); addBot(Object.keys(players).filter(isBot).length + 1); };
+$('delbot').onclick = () => { const b = Object.keys(players).filter(isBot).pop(); if (b && isHost() && state.phase === 'lobby') remove(ref(db, `rooms/${room}/players/${b}`)); };
+$('solo').onclick = async () => { if (!ensureName()) return; if (await createRoom()) for (let k = 1; k <= 3; k++) addBot(k); };
 $('pickH').onclick = () => pick('H');
 $('pickT').onclick = () => pick('T');
 function pick(c) { if (state.phase === 'toss' && (state.alive || []).includes(uid)) set(ref(db, `rooms/${room}/choices/${uid}`), c); }
@@ -169,18 +178,19 @@ setInterval(hostTick, 500);
 function hostTick() {
   if (!room || !isHost()) return;
   const s = state, t = now(), ids = Object.keys(players), p = s.phase;
-  const put = (o, x = {}) => update(ref(db, 'rooms/' + room), { state: o, ...x });
+  const put = (o, x = {}) => update(ref(db, 'rooms/' + room), { state: s.mode ? { mode: s.mode, ...o } : o, ...x });
   const nextToss = (alive, msg) => put({ phase: 'toss', round: (s.round || 1) + 1, alive, parts: s.parts, deadline: t + TOSS_MS, msg }, { choices: null });
   const toHide = (seeker, msg) => put({ phase: 'hide', seeker, parts: (s.parts || []).filter(u => players[u]), deadline: t + HIDE_MS, msg: msg || '' }, { choices: null, caught: null, skin: null, shots: null });
+  const after = (sk, msg) => s.mode === 'story' ? put({ phase: 'ludo', seeker: sk, parts: s.parts, msg: msg || '' }, { ludo: null, choices: null }) : toHide(sk, msg);
   const end = w => put({ phase: 'end', seeker: s.seeker, parts: s.parts, winner: w, deadline: t + END_MS });
   if (p !== 'lobby' && ids.length < 2) return put({ phase: 'lobby' }, { choices: null, caught: null });
   if (p === 'toss') {
     const alive = (s.alive || []).filter(u => players[u]);
     if (!alive.length) return put({ phase: 'lobby' }, { choices: null });
-    if (t < s.deadline && !alive.every(u => choices[u])) return;
+    if (t < s.deadline && !alive.every(u => choices[u] || isBot(u))) return;
     const ch = {}; alive.forEach(u => ch[u] = choices[u] || (Math.random() < .5 ? 'H' : 'T'));
     const H = alive.filter(u => ch[u] === 'H'), T = alive.filter(u => ch[u] === 'T');
-    if (alive.length === 1) return toHide(alive[0]);
+    if (alive.length === 1) return after(alive[0]);
     if (alive.length === 2) {
       if (H.length === 1) { const res = Math.random() < .5 ? 'H' : 'T'; return put({ phase: 'coin', coin: res, seeker: (res === 'H' ? H : T)[0], final: ch, parts: s.parts, deadline: t + COIN_MS }, { choices: null }); }
       return nextToss(alive, 'দুজনেই একই পাশ বেছেছেন, আবার');
@@ -188,9 +198,15 @@ function hostTick() {
     if (!H.length || !T.length || H.length === T.length) return nextToss(alive, 'পাশ সমান বা সবাই এক পাশে — কেউ বাদ পড়েনি, আবার টস');
     const big = H.length > T.length ? H : T, small = big === H ? T : H;
     const msg = `${bn(H.length)} জন হেড, ${bn(T.length)} জন টেল — ${bn(big.length)} জন বাদ`;
-    return small.length === 1 ? toHide(small[0], msg) : nextToss(small, msg);
+    return small.length === 1 ? after(small[0], msg) : nextToss(small, msg);
   }
-  if (p === 'coin' && t >= s.deadline) return toHide(s.seeker);
+  if (p === 'coin' && t >= s.deadline) return after(s.seeker);
+  if (p === 'ludo') {
+    botLudo();
+    if (L && L.over && !s.ludoDone) return put({ ...s, ludoDone: t + 6000 });
+    if (s.ludoDone && t >= s.ludoDone) return s.mode === 'story' ? toHide(s.seeker) : put({ phase: 'lobby' }, { ludo: null });
+    return;
+  }
   if (p === 'hide') { if (!players[s.seeker]) return end('hiders'); if (t >= s.deadline) { const n = (s.parts || []).filter(u => players[u] && u !== s.seeker).length, ms = Math.min(720000, Math.max(90000, n * 45000)); return put({ ...s, phase: 'seek', seekStart: t, deadline: t + ms }); } }
   if (p === 'seek') {
     if (!players[s.seeker]) return end('hiders');
@@ -205,12 +221,13 @@ function hostTick() {
 function onPlayers() {
   const ids = sorted().map(e => e[0]);
   $('pl').innerHTML = `<b>ঘরে আছেন ${bn(ids.length)}/${bn(MAX)} জন</b>` + ids.map((u, i) => `<div>${esc(players[u].name)}${u === uid ? ' (আপনি)' : ''}${i === 0 ? ' ★' : ''}</div>`).join('');
-  $('start').hidden = !isHost(); $('wait').hidden = isHost();
+  $('hostbox').hidden = !isHost(); $('wait').hidden = isHost();
   syncAvatars(); renderToss();
 }
 function onState(old) {
   const p = state.phase;
   if (p !== old.phase) {
+    if (p === 'ludo') ludoEnter(); if (old.phase === 'ludo') ludoExit();
     if (p === 'hide' || p === 'lobby') clearPaint();
     if (p === 'seek' && iAmSeeker()) toast('ফায়ার চেপে রঙের গুলি ছুড়ুন!');
     if (p === 'seek') lastSig = Math.floor((now() - (state.seekStart || now())) / SIG_MS);
@@ -262,6 +279,7 @@ function updateHud() {
   else if (p === 'coin') t = 'কয়েন টস';
   else if (p === 'hide') { t = iAmSeeker() ? 'চোখ বন্ধ' : 'লুকান!'; s = bn(left) + ' সেকেন্ড' + (iAmSeeker() ? '' : ' • রূপ বদলে লুকান'); { const bh = `<div>চোখ বন্ধ!<br>${bn(left)}</div>`, bb = $('blind'); if (bb._h !== bh) { bb._h = bh; bb.innerHTML = bh; } } }
   else if (p === 'seek') { t = iAmSeeker() ? 'সবাইকে খুঁজুন' : 'লুকিয়ে থাকুন'; s = `${bn(left)} সেকেন্ড • বাকি ${bn(hiders().filter(u => !caught[u]).length)} জন`; if (caught[uid]) s += ' • আপনি ধরা পড়েছেন'; }
+  else if (p === 'ludo') { t = state.mode === 'story' ? 'স্টোরি • লুডো' : 'লুডো'; s = L ? (L.over ? (L.winner ? '🏆 ' + (players[L.winner]?.name || '') + ' জিতেছেন!' : 'খেলা শেষ') : (players[L.turn]?.name || '') + '-এর পালা') : ''; }
   else if (p === 'end') t = 'খেলা শেষ';
   $('ph').textContent = t; $('sub').textContent = s;
 }
@@ -460,7 +478,7 @@ world.receiveShadow = true; world.castShadow = true;
 scene.add(world); SP.length = 0;
 { // পুকুরের পানি: আলাদা মেশ, ঢেউ আর ঝিলিক সহ
   const wm = new THREE.MeshLambertMaterial({ color: 0x3f94c9, transparent: true, opacity: .88, emissive: 0x0b3a5a, emissiveIntensity: .35, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-  const w = new THREE.Mesh(gcirc, wm); w.position.set(PX, .03, PZ); w.scale.set(PR, 1, PR); w.receiveShadow = true; scene.add(w);
+  const w = new THREE.Mesh(gcirc, wm); w.position.set(PX, .03, PZ); w.scale.set(PR, 1, PR); w.receiveShadow = true; scene.add(w); water.mesh = w;
   for (let i = 0; i < 3; i++) { const r = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .4, depthWrite: false })); r.position.set(PX, .05, PZ); scene.add(r); ripples.push(r); }
   water.m = wm;
 }
@@ -522,11 +540,11 @@ function updateAvatars(dt) {
 
   const p = state.phase, gameOn = p === 'hide' || p === 'seek';
   for (const u in av) {
-    const g = av[u], d = g.userData, q = u === uid ? { x: me.x, z: me.z, r: me.ry } : pos[u];
+    const g = av[u], d = g.userData, q = p === 'ludo' ? lq(u) : u === uid ? { x: me.x, z: me.z, r: me.ry } : pos[u];
     if (!q) { g.visible = false; continue; }
     g.visible = true;
     const px = g.position.x, pz = g.position.z;
-    if (u === uid || !d.init) { g.position.set(q.x, 0, q.z); g.rotation.y = q.r; d.init = 1; }
+    if ((u === uid && p !== 'ludo') || !d.init) { g.position.set(q.x, 0, q.z); g.rotation.y = q.r; d.init = 1; }
     else {
       const k = 1 - Math.exp(-12 * dt); g.position.x += (q.x - px) * k; g.position.z += (q.z - pz) * k;
       g.rotation.y += Math.atan2(Math.sin(q.r - g.rotation.y), Math.cos(q.r - g.rotation.y)) * k;
@@ -536,13 +554,13 @@ function updateAvatars(dt) {
     d.sp += (Math.min(mv, 7) - d.sp) * Math.min(1, dt * 10); d.ph += d.sp * dt * 2.2;
     const sw = Math.sin(d.ph) * Math.min(1, d.sp / 4) * .8;
     d.legL.rotation.x = sw; d.legR.rotation.x = -sw; d.armL.rotation.x = -sw; d.armR.rotation.x = sw;
-    const sk = gameOn && u === state.seeker, ct = (p === 'hide' || p === 'seek' || p === 'end') && !!caught[u];
+    const sk = gameOn && u === state.seeker, ct = ((p === 'hide' || p === 'seek' || p === 'end') && !!caught[u]) || (p === 'ludo' && !!L && !!L.ps[u] && L.ps[u].out);
     const want = gameOn && !sk && !ct && PROPS[skin[u]] ? skin[u] : null;
     if (want !== d.ptype) { if (d.prop) { g.remove(d.prop); d.prop = null; } if (want) { d.prop = buildProp(want); g.add(d.prop); } d.ptype = want; }
     d.hum.visible = !d.prop; d.gun.visible = sk;
     d.shirt.color.set(sk ? 0xd64545 : ct ? (typeof caught[u] === 'number' ? caught[u] : 0x888888) : d.col);
     g.scale.y = ct ? .45 : 1;
-    d.lb.visible = u !== uid && (p === 'lobby' || sk);
+    d.lb.visible = p === 'ludo' ? !!(L && L.ps[u]) : u !== uid && (p === 'lobby' || sk);
   }
 }
 
@@ -658,13 +676,13 @@ function fire() {
   set(ref(db, `rooms/${room}/shots/${key}`), data); setTimeout(() => remove(ref(db, `rooms/${room}/shots/${key}`)), 5000);
 }
 
-function collide(r) {
-  for (const k of cols) { const ex = me.x - k.x, ez = me.z - k.z, m = k.r + r, d2 = ex * ex + ez * ez; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2); me.x = k.x + ex / d * m; me.z = k.z + ez / d * m; } }
+function collide(r, o = me) {
+  for (const k of cols) { const ex = o.x - k.x, ez = o.z - k.z, m = k.r + r, d2 = ex * ex + ez * ez; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2); o.x = k.x + ex / d * m; o.z = k.z + ez / d * m; } }
   for (const b of boxes) {
-    const cx = Math.max(b.x1, Math.min(me.x, b.x2)), cz = Math.max(b.z1, Math.min(me.z, b.z2)), dx = me.x - cx, dz = me.z - cz, d2 = dx * dx + dz * dz;
+    const cx = Math.max(b.x1, Math.min(o.x, b.x2)), cz = Math.max(b.z1, Math.min(o.z, b.z2)), dx = o.x - cx, dz = o.z - cz, d2 = dx * dx + dz * dz;
     if (d2 >= r * r) continue;
-    if (d2 > 1e-8) { const d = Math.sqrt(d2); me.x = cx + dx / d * r; me.z = cz + dz / d * r; }
-    else { const l = me.x - b.x1, rr = b.x2 - me.x, tp = me.z - b.z1, bt = b.z2 - me.z, m = Math.min(l, rr, tp, bt); if (m === l) me.x = b.x1 - r; else if (m === rr) me.x = b.x2 + r; else if (m === tp) me.z = b.z1 - r; else me.z = b.z2 + r; }
+    if (d2 > 1e-8) { const d = Math.sqrt(d2); o.x = cx + dx / d * r; o.z = cz + dz / d * r; }
+    else { const l = o.x - b.x1, rr = b.x2 - o.x, tp = o.z - b.z1, bt = b.z2 - o.z, m = Math.min(l, rr, tp, bt); if (m === l) o.x = b.x1 - r; else if (m === rr) o.x = b.x2 + r; else if (m === tp) o.z = b.z1 - r; else o.z = b.z2 + r; }
   }
 }
 function step(dt) {
@@ -776,6 +794,131 @@ function stopMusic() { clearInterval(mTimer); mTimer = null; }
 $('mus').textContent = music ? '🎵' : '🔇';
 $('mus').onclick = () => { music = !music; localStorage.music = music ? 'on' : 'off'; $('mus').textContent = music ? '🎵' : '🔇'; music ? startMusic() : stopMusic(); };
 
+/* ---------- বট: লুকোচুরিতে কম্পিউটার খেলোয়াড় (হোস্টের ফোনে চলে) ---------- */
+const BT = {}; let bPh = '';
+function botMove(o, dt, sp) { const dx = o.tx - o.x, dz = o.tz - o.z, d = Math.hypot(dx, dz); if (d < .5) return false; o.x += dx / d * sp * dt; o.z += dz / d * sp * dt; o.ry = Math.atan2(dx, dz); collide(.4, o); o.x = Math.max(-HALF, Math.min(HALF, o.x)); o.z = Math.max(-HALF, Math.min(HALF, o.z)); return true; }
+function botTick(dt) {
+  const ph = state.phase;
+  if (!room || !isHost() || (ph !== 'hide' && ph !== 'seek')) { bPh = ph; return; }
+  const bots = Object.keys(players).filter(u => isBot(u) && (state.parts || []).includes(u));
+  if (!bots.length) { bPh = ph; return; }
+  const T = performance.now(), props = Object.keys(PROPS);
+  for (const u of bots) {
+    let o = BT[u]; const sk = u === state.seeker;
+    if (!o || (bPh !== ph && ph === 'hide')) {
+      const parts = state.parts, a = parts.indexOf(u) / parts.length * Math.PI * 2;
+      o = BT[u] = { x: sk ? 0 : Math.cos(a) * 9, z: sk ? 0 : Math.sin(a) * 9, ry: 0, nt: 0, d: 1, ts: 0 }; o.tx = o.x; o.tz = o.z;
+      if (!sk) set(ref(db, `rooms/${room}/skin/${u}`), props[Math.random() * props.length | 0]);
+    }
+    let mv = false;
+    if (ph === 'hide' && !sk) { if (T > o.nt) { o.tx = (Math.random() * 2 - 1) * 32; o.tz = (Math.random() * 2 - 1) * 32; o.nt = T + 7000 + Math.random() * 5000; } mv = botMove(o, dt, 4.6); }
+    else if (ph === 'seek' && sk) {
+      const hs = hiders().filter(h => !caught[h] && pos[h]);
+      if (T > o.nt && hs.length) { const h = pos[hs[Math.random() * hs.length | 0]]; o.tx = h.x + (Math.random() - .5) * 8; o.tz = h.z + (Math.random() - .5) * 8; o.nt = T + 4500; }
+      mv = botMove(o, dt, 3.8);
+      for (const h of hs) if (Math.hypot(pos[h].x - o.x, pos[h].z - o.z) < 1.8) set(ref(db, `rooms/${room}/caught/${h}`), BALLC[0]);
+    }
+    if (mv) o.d = 1;
+    if (o.d && T - o.ts > 110) { o.ts = T; o.d = 0; set(ref(db, `rooms/${room}/pos/${u}`), { x: +o.x.toFixed(2), z: +o.z.toFixed(2), r: +o.ry.toFixed(2) }); }
+  }
+  bPh = ph;
+}
+
+/* ---------- লুডো: গুটি = ক্যারেক্টার নিজেই, ছক্কা ছুড়লে নিজে নিজে এগোয় ---------- */
+const LN = 36, JAIL = [6, 15, 26], SNAKE = [9, 19, 29], FIRE = [12, 23, 32];
+const tileXZ = i => [-33 + i * 66 / (LN - 1), 11 * Math.sin(i * .42)];
+const tileKind = i => i === LN - 1 ? 'fin' : JAIL.includes(i) ? 'jail' : SNAKE.includes(i) ? 'snake' : FIRE.includes(i) ? 'fire' : 'n';
+let L = null, lUn = null, lBusy = 0, lDice = null, lSent = -1, lRep = false, lTurnAt = 0, lLast = 0, lcx = 0, lcz = 0;
+const nmOf = u => players[u]?.name || '?';
+const lMsg = (t, d = 0) => { if (!lRep) setTimeout(() => toast(t), d); };
+const ludoG = new THREE.Group(); ludoG.visible = false; scene.add(ludoG);
+function emojiSprite(t, x, y, z) { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.font = '96px serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, 64, 70); const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthWrite: false })); sp.scale.set(2.2, 2.2, 1); sp.position.set(x, y, z); return sp; }
+{ const gr = new THREE.Mesh(gcirc, new THREE.MeshLambertMaterial({ color: 0x6fb24a })); gr.scale.set(72, 1, 46); gr.receiveShadow = true; ludoG.add(gr);
+  for (let i = 0; i < LN; i++) { const [x, z] = tileXZ(i), k = tileKind(i);
+    const c = k === 'fin' ? 0xf2b134 : k === 'jail' ? 0x777b80 : k === 'snake' ? 0x3a9d4a : k === 'fire' ? 0xe0572a : (i % 2 ? 0xf1e3c0 : 0xe3c58a);
+    const m = new THREE.Mesh(gc(1.5, 1.5, .25, 16), mat(c)); m.position.set(x, .12, z); ludoG.add(m);
+    const ic = { jail: '⛓️', snake: '🐍', fire: '🔥', fin: '🏁' }[k] || (i === 0 ? '🚩' : ''); if (ic) ludoG.add(emojiSprite(ic, x, 1.9, z)); }
+  for (let i = 0; i < 14; i++) { const t = buildProp('tree'); t.position.set(-36 + i * 5.6, 0, (i % 2 ? -1 : 1) * (19 + (i % 3) * 2)); t.scale.setScalar(1.1 + (i % 3) * .15); ludoG.add(t); } }
+const FACE = [3, 4, 1, 6, 2, 5], FN = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const PP = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]], 5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]] };
+function pipTex(n) { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#fff8e8'; g.fillRect(0, 0, 128, 128); g.strokeStyle = '#d9c9a0'; g.lineWidth = 8; g.strokeRect(0, 0, 128, 128); g.fillStyle = n === 1 ? '#d62d2d' : '#222'; for (const [a, b] of PP[n]) { g.beginPath(); g.arc(a * 32, b * 32, n === 1 ? 20 : 11, 0, 7); g.fill(); } return new THREE.CanvasTexture(c); }
+const dice = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), FACE.map(n => new THREE.MeshLambertMaterial({ map: pipTex(n) }))); dice.visible = false; dice.castShadow = true; ludoG.add(dice);
+const UPV = new THREE.Vector3(0, 1, 0), dq = new THREE.Quaternion();
+function lq(u) { const p = L && L.ps[u]; if (!p) return null; const i = L.parts.indexOf(u), [x, z] = tileXZ(p.vis), [nx, nz] = tileXZ(Math.min(LN - 1, p.vis + 1)), a = i * 1.05; return { x: x + Math.cos(a) * .55, z: z + Math.sin(a) * .55, r: Math.atan2(nx - x, nz - z) || 1.57 }; }
+function ludoReset() { const parts = (state.parts || []).slice(0, 6); L = { parts, ps: {}, turn: parts[0], over: false, winner: null, seq: 0 }; parts.forEach(u => L.ps[u] = { pos: 0, vis: 0, visAt: 0, lives: 3, skip: 0, out: false, done: false }); }
+const lAlive = u => players[u] && L.ps[u] && !L.ps[u].out && !L.ps[u].done;
+function lNext() {
+  const n = L.parts.length; let i = L.parts.indexOf(L.turn);
+  for (let k = 0; k < n * 3; k++) {
+    i = (i + 1) % n; const u = L.parts[i], p = L.ps[u];
+    if (!players[u] || p.out || p.done) continue;
+    if (p.skip > 0) { p.skip--; lMsg(`⛓️ ${nmOf(u)} এবার জেলে বসে আছেন`); continue; }
+    L.turn = u; return;
+  }
+}
+function lApply(e) {
+  if (L.over) return;
+  const p = L.ps[e.u]; if (!p) return;
+  if (e.s) { const t = L.ps[e.s]; if (t && t.out && p.lives > 1 && L.turn === e.u) { p.lives--; t.lives = 1; t.out = false; lMsg(`💖 ${nmOf(e.u)} নিজের প্রাণ দিয়ে ${nmOf(e.s)}-কে বাঁচালেন`); } return; }
+  if (L.turn !== e.u) return;
+  const from = p.pos, b = lq(e.u); p.pos = Math.min(LN - 1, from + e.r);
+  const d = 1500 + (p.pos - from) * 420;
+  if (lRep) p.vis = p.pos; else { lDice = { r: e.r, bx: b.x, bz: b.z, t: performance.now() }; p.visAt = performance.now() + 1500; lBusy = performance.now() + d + 700; }
+  const k = tileKind(p.pos);
+  if (k === 'fin') { p.done = true; L.over = true; L.winner = e.u; lMsg(`🏆 ${nmOf(e.u)} জিতেছেন!`, d); return; }
+  if (k === 'jail') { p.skip = 2; lMsg(`⛓️ ${nmOf(e.u)} জেলঘরে! ২ বার ছুড়তে পারবেন না`, d); }
+  else if (k === 'snake' || k === 'fire') { p.lives--; if (p.lives <= 0) { p.out = true; lMsg(`💀 ${nmOf(e.u)} বাদ! বন্ধু প্রাণ দিলে বাঁচবেন`, d); } else lMsg(`${k === 'snake' ? '🐍 সাপ' : '🔥 আগুন'}! ${nmOf(e.u)}-এর প্রাণ বাকি ${bn(p.lives)}`, d); }
+  lNext();
+  if (!L.parts.some(lAlive)) { L.over = true; lMsg('সবাই বাদ পড়েছে!', d); }
+}
+function lGot(e) { if (!e || !L) return; lRep = now() - (e.t || 0) > 8000; lApply(e); lRep = false; L.seq++; lTurnAt = performance.now(); }
+function lPush(o) { if (!L || lSent === L.seq) return; lSent = L.seq; set(ref(db, `rooms/${room}/ludo/log/${String(L.seq).padStart(4, '0')}`), { ...o, t: now() }); }
+const lRoll = () => 1 + Math.random() * 6 | 0;
+function botLudo() { // হোস্ট: কম্পিউটারের পালায় ছক্কা ছোড়ে; কেউ ২৫ সেকেন্ড না ছুড়লে তার হয়ে ছোড়ে
+  if (!L || L.over || performance.now() < lBusy || lSent === L.seq) return;
+  const u = L.turn, T = performance.now();
+  if (isBot(u)) {
+    if (T - lTurnAt < 1400) return;
+    const outp = L.parts.find(x => L.ps[x].out && players[x]);
+    if (outp && L.ps[u].lives > 1 && Math.random() < .6) return lPush({ u, s: outp });
+    return lPush({ u, r: lRoll() });
+  }
+  if (T - lTurnAt > 25000) lPush({ u, r: lRoll() });
+}
+function ludoEnter() {
+  ludoReset(); lSent = -1; lTurnAt = performance.now(); lDice = null; lBusy = 0;
+  world.visible = false; water.mesh.visible = false; ripples.forEach(r => r.visible = false); ludoG.visible = true; $('joy').hidden = true; clearPaint();
+  lUn = onChildAdded(ref(db, `rooms/${room}/ludo/log`), s => lGot(s.val()));
+  toast('🎲 লুডো! পালা এলে ছক্কা ছুড়ুন');
+}
+function ludoExit() {
+  lUn && lUn(); lUn = null; L = null; world.visible = true; water.mesh.visible = true; ripples.forEach(r => r.visible = true); ludoG.visible = false; dice.visible = false;
+  if (room) $('joy').hidden = false; $('roll').hidden = $('lu').hidden = true;
+}
+function updateLudo() {
+  const T = performance.now();
+  for (const u of L.parts) { const p = L.ps[u]; if (p.vis !== p.pos && T >= p.visAt) { p.vis += Math.sign(p.pos - p.vis); p.visAt = T + 420; } }
+  if (!lDice) { dice.visible = false; return; }
+  const k = (T - lDice.t) / 1300; dice.visible = true;
+  if (k < 1) { dice.position.set(lDice.bx + 2.6 * k, .75 + Math.sin(Math.PI * k) * 3.4 + (1 - k) * 1.5, lDice.bz + 1.4 * k); dice.rotation.set(k * 14, k * 11, k * 8); }
+  else { dq.setFromUnitVectors(new THREE.Vector3(...FN[FACE.indexOf(lDice.r)]), UPV); dice.quaternion.copy(dq); dice.position.set(lDice.bx + 2.6, .75, lDice.bz + 1.4); }
+}
+function ludoCam(dt) {
+  const q = (L && lq(L.over && L.winner ? L.winner : L.turn)) || { x: 0, z: 0 };
+  lcx += (q.x - lcx) * Math.min(1, dt * 3); lcz += (q.z - lcz) * Math.min(1, dt * 3);
+  cam.position.set(lcx - 3, 9, lcz + 13); cam.lookAt(lcx + 4, 1, lcz);
+}
+$('roll').onclick = () => { if (L && !L.over && L.turn === uid && performance.now() >= lBusy) lPush({ u: uid, r: lRoll() }); };
+$('lu').onclick = e => { const b = e.target.closest('[data-sv]'); if (b && L && L.turn === uid && performance.now() >= lBusy) lPush({ u: uid, s: b.dataset.sv }); };
+setInterval(() => {
+  const on = !!room && state.phase === 'ludo' && !!L, lu = $('lu'), rb = $('roll'); lu.hidden = rb.hidden = !on; if (!on) return;
+  const mine = L.turn === uid && !L.over, busy = performance.now() < lBusy, me0 = L.ps[uid];
+  rb.disabled = !mine || busy; rb.textContent = L.over ? '🏁' : mine ? '🎲 ছুড়ুন' : '⏳ ' + nmOf(L.turn);
+  const h = L.parts.map(u => { const p = L.ps[u], sv = mine && !busy && me0 && !me0.out && me0.lives > 1 && p.out;
+    return `<div class="lr${u === L.turn && !L.over ? ' on' : ''}"><span>${u === L.turn && !L.over ? '▶ ' : ''}${esc(nmOf(u))}${u === uid ? ' (আপনি)' : ''}</span><span>${p.done ? '🏆' : p.out ? '💀' : '❤️'.repeat(p.lives)}${p.skip ? ' ⛓️' + bn(p.skip) : ''}</span>${sv ? `<button data-sv="${u}">💖 বাঁচান</button>` : ''}</div>`; }).join('');
+  if (lu._h !== h) { lu._h = h; lu.innerHTML = h; }
+}, 250);
+
 /* ---------- রেন্ডার লুপ ---------- */
 function resize() { renderer.setSize(innerWidth, innerHeight, false); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
@@ -792,14 +935,15 @@ renderer.setAnimationLoop(() => {
   if (raw < .5) { fAcc += raw; fN++; if (fAcc >= 1.5) { const f = fN / fAcc; fAcc = fN = 0; if (fWarm > 0) fWarm--; else adapt(f); } } else { fAcc = fN = 0; }
   if (room && state.phase === 'seek' && iAmSeeker()) { const ny = Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)); if (Math.abs(Math.atan2(Math.sin(ny - me.ry), Math.cos(ny - me.ry))) > .05) { me.ry = ny; dirty = true; } }
   if (step(dt)) dirty = true;
+  botTick(dt);
   if (dirty && t - lastSend >= 100) sendPos(true);
-  updateAvatars(dt); updateBalls(dt); updateParts(dt); proxCheck(t); hintUpdate(); shadowFollow();
+  if (L) updateLudo(dt); updateAvatars(dt); updateBalls(dt); updateParts(dt); proxCheck(t); hintUpdate(); shadowFollow();
   { const T = t / 1000; // পানির ঢেউ, মেঘের ভেসে যাওয়া
     water.m.emissiveIntensity = .3 + Math.sin(T * 1.7) * .12;
     ripples.forEach((r, i) => { const k = ((T * .22 + i / 3) % 1); r.scale.set(PR * (.25 + k * .75), 1, PR * (.25 + k * .75)); r.material.opacity = .45 * (1 - k); });
     clouds.forEach(c => { c.position.x += c.userData.sp * dt; if (c.position.x > 130) c.position.x = -130; }); }
   if (room) {
-    camPlace(dt);
+    if (state.phase === 'ludo') ludoCam(dt); else camPlace(dt);
     if (state.phase === 'seek' && state.seekStart) { const k = Math.floor((now() - state.seekStart) / SIG_MS); if (k > lastSig) { lastSig = k; playSignal(); } }
   } else { const a = t / 7000; cam.position.set(Math.cos(a) * 36, 16, Math.sin(a) * 36); cam.lookAt(0, 2, 0); }
   renderer.render(scene, cam);

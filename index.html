@@ -67,6 +67,11 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #hint{position:fixed;top:92px;left:50%;transform:translateX(-50%);width:120px;text-align:center;z-index:6;pointer-events:none;background:#16301fd9;border:2px solid #f2b134;border-radius:16px;padding:6px}
 #arr{font-size:2.4rem;color:#ff5a4d;line-height:1}
 #hd{font-size:.9rem}
+#lu{position:fixed;left:max(10px,env(safe-area-inset-left));top:58px;width:min(250px,44vw);background:linear-gradient(160deg,#1f4a2fee,#122a1aee);border:1px solid #ffffff30;border-radius:14px;padding:8px;z-index:4;display:grid;gap:4px;font-size:.9rem;max-height:calc(100% - 70px);overflow:auto;touch-action:pan-y}
+.lr{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 5px;border-radius:8px}.lr.on{background:#f2b13433;outline:1px solid #f2b134}.lr button{padding:.2em .5em;font-size:.8rem;box-shadow:none}
+#roll{position:fixed;right:max(28px,env(safe-area-inset-right));bottom:30px;width:128px;height:128px;border-radius:50%;font-size:1.2rem;z-index:4;background:radial-gradient(circle at 35% 30%,#ffe08a,#e0a21b);color:#2a1c00;box-shadow:0 5px 0 #7a4b00,0 8px 16px #0007}
+.hb{display:grid;gap:6px}.hb button{font-size:.88rem}
+@media (max-height:520px){#roll{width:100px;height:100px;bottom:20px;font-size:1rem}}
 #fs{position:fixed;top:56px;right:58px;width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
 #boot{position:fixed;inset:0;z-index:200;background:radial-gradient(ellipse at center,#2a6a40,#0f2216);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-weight:700;font-size:1.3rem;color:#ffd25e}
 #boot i{font-style:normal;font-size:3.4rem;animation:bob 1s ease-in-out infinite alternate}
@@ -116,7 +121,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 
 <div id="lobby" hidden>
   <div id="pl"></div>
-  <button id="start" class="y">খেলা শুরু করুন</button>
+  <div id="hostbox" class="hb"><button id="addbot">🤖 কম্পিউটার +১</button><button id="delbot">➖ কম্পিউটার সরান</button><button id="start" class="y">📖 স্টোরি মোড (টস → লুডো → লুকোচুরি)</button><button id="startL">🎲 শুধু লুডো</button><button id="startH">🙈 শুধু লুকোচুরি</button></div>
   <small id="wait">হোস্ট (★) খেলা শুরু করবেন</small>
   <b>অনলাইনে ডাকুন</b>
   <div id="olLobby" class="ol"></div>
@@ -145,12 +150,14 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
   <input id="name" placeholder="আপনার নাম" maxlength="14">
   <button id="create" class="y">🏠 নতুন রুম বানান</button>
   <div class="row"><input id="jc" placeholder="রুমের ঠিকানা" maxlength="5" style="text-transform:uppercase"><button id="join">ঢুকুন</button></div>
+  <button id="solo" class="y">🤖 কম্পিউটারের সাথে খেলুন</button>
   <button id="pub">🌐 অনলাইনে যে কারও সাথে খেলুন</button>
   <b><span class="dot"></span>এখন অনলাইনে: <span id="olN"></span></b>
   <div id="olMenu" class="ol"></div>
   <small class="foot">Gaming with Tamjed</small>
 </div></div>
 
+<div id="lu" hidden></div><button id="roll" hidden>🎲 ছুড়ুন</button>
 <div id="inv" hidden></div>
 <div id="toast"></div>
 <script type="module" src="/src/main.js"></script>
