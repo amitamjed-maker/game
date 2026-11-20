@@ -14,6 +14,8 @@ const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const db = getDatabase(initializeApp(firebaseConfig));
 const uid = localStorage.uid || (localStorage.uid = Math.random().toString(36).slice(2, 10));
 let myName = localStorage.name || '';
+const randLook = () => ['m|f'[Math.random() < .5 ? 0 : 2], Math.random() * 5 | 0, Math.random() * 4 | 0, Math.random() * 6 | 0, Math.random() * 8 | 0, Math.random() * 6 | 0, Math.random() * 3 | 0].join('|');
+let myLook = localStorage.look || (localStorage.look = randLook());
 let offset = 0;
 onValue(ref(db, '.info/serverTimeOffset'), s => offset = s.val() || 0);
 const now = () => Date.now() + offset;
@@ -44,7 +46,7 @@ function register(code, joined) {
   onDisconnect(ref(db, `rooms/${code}/pos/${uid}`)).remove();
   onDisconnect(ref(db, `rooms/${code}/choices/${uid}`)).remove();
   onDisconnect(ref(db, `rooms/${code}/skin/${uid}`)).remove();
-  return set(pr, { name: myName, joined: joined || now() });
+  return set(pr, { name: myName, joined: joined || now(), look: myLook });
 }
 onValue(ref(db, '.info/connected'), s => {
   if (!s.val()) return;
@@ -125,7 +127,7 @@ function chatAdd(m) {
 function chatSend() { const i = $('chatIn'), t = i.value.trim().slice(0, 120); if (!t || !room) return; i.value = ''; push(ref(db, `rooms/${room}/chat`), { u: uid, name: myName || '?', text: t, t: now() }); }
 $('chatSend').onclick = chatSend;
 $('chatIn').addEventListener('keydown', e => { if (e.key === 'Enter') chatSend(); });
-$('chatBtn').onclick = () => { $('funBox').hidden = true; const b = $('chatBox'); b.hidden = !b.hidden; if (!b.hidden) { chatN = 0; $('chatBadge').hidden = true; $('chatLog').scrollTop = 1e9; } };
+$('chatBtn').onclick = () => { $('funBox').hidden = true; $('lookBox').hidden = true; const b = $('chatBox'); b.hidden = !b.hidden; if (!b.hidden) { chatN = 0; $('chatBadge').hidden = true; $('chatLog').scrollTop = 1e9; } };
 $('micBtn').onclick = () => vcMine ? voiceLeave() : voiceJoin();
 $('muteBtn').onclick = () => { vcMuted = !vcMuted; vcStream && vcStream.getAudioTracks().forEach(t => t.enabled = !vcMuted); voiceUI(); };
 function voiceUI() {
@@ -658,30 +660,81 @@ const av = {};
 const ORANGE = 0xff8a1c;
 const flat = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
 const capG = new THREE.SphereGeometry(.27, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), headG = new THREE.SphereGeometry(.22, 8, 6);
-function makeAvatar(u) { // সবাই একই স্ট্যান্ডার্ড লো-পলি শ্রমিক: কমলা হেলমেট + কমলা ভেস্ট + টিল ইউনিফর্ম
-  const col = new THREE.Color(ORANGE);
-  let h = 0; for (const ch of u) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const g = new THREE.Group(), hum = new THREE.Group(), vest = new THREE.MeshLambertMaterial({ color: col, flatShading: true });
-  const skin = flat(SKINS[h % 4]), uni = flat(0x1f8f86), pant = flat(0x187a73), dark = flat(0x1c1c1c), hat = flat(0xff9a1f), tape = flat(0xdfe3e6);
-  const M = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); return o; };
-  const limb = (w, len, x, y, m, tip, ty) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.add(M(gb(w, len, w), m, 0, -len / 2, 0)); tip.position.y = ty; p.add(tip); return p; };
-  const hand = () => M(gb(.15, .15, .15), skin, 0, 0, 0), shoe = () => M(gb(.23, .12, .34), dark, 0, 0, .06);
-  const armL = limb(.17, .6, -.37, 1.32, uni, hand(), -.66), armR = limb(.17, .6, .37, 1.32, uni, hand(), -.66);
-  const legL = limb(.21, .76, -.14, .78, pant, shoe(), -.72), legR = limb(.21, .76, .14, .78, pant, shoe(), -.72);
-  hum.add(M(gb(.54, .62, .32), uni, 0, 1.03, 0), M(gb(.58, .5, .36), vest, 0, 1.08, 0), M(gb(.6, .07, .38), tape, 0, 1.0, 0), M(gb(.6, .07, .38), tape, 0, 1.2, 0),
-    M(headG, skin, 0, 1.58, 0), M(capG, hat, 0, 1.64, 0), M(gb(.46, .04, .16), hat, 0, 1.64, .24),
-    M(gb(.06, .06, .04), dark, -.09, 1.57, .2), M(gb(.06, .06, .04), dark, .09, 1.57, .2), armL, armR, legL, legR);
+/* ---------- চরিত্র: ছেলে / মেয়ে + পোশাক ---------- */
+const SKIN_C = [0xf5d3b3, 0xe0ac80, 0xb98056, 0x8d5a3b, 0x5e3b25], HAIR_C = [0x1a1410, 0x3b2314, 0x7a4a24, 0xc9a227, 0x8a8a8a, 0xa8322d],
+  TOP_C = [0x2f6fdb, 0xd64545, 0x2e9e5b, 0xf2c230, 0x8e5bd6, 0xf4f0e6, 0x222831, 0xff7ab8], BOT_C = [0x2d3a5a, 0x3b3b3b, 0x4a5a3a, 0x6b4a2b, 0xf4f0e6, 0x7a2d3a];
+const STYLES = { m: [['tee', 'টি-শার্ট'], ['shirt', 'ফুল শার্ট'], ['panjabi', 'পাঞ্জাবি'], ['worker', 'শ্রমিক']], f: [['tee', 'টি-শার্ট'], ['dress', 'ফ্রক'], ['kameez', 'কামিজ'], ['worker', 'শ্রমিক']] };
+const HAIRS = { m: ['ছোট চুল', 'এলোমেলো', 'খুব ছোট', 'দাড়ি'], f: ['লম্বা চুল', 'পনিটেল', 'খোঁপা', 'বব চুল'] };
+const hairCapG = new THREE.SphereGeometry(.212, 16, 10, 0, Math.PI * 2, 0, Math.PI * .5);
+function lookOf(u) {
+  const a = String((players[u] && players[u].look) || '').split('|'); let h = 0; for (const ch of u) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const n = (i, m, d) => { const v = parseInt(a[i]); return v >= 0 && v < m ? v : d; };
+  return { g: a[0] === 'f' ? 'f' : a[0] === 'm' ? 'm' : (h & 1 ? 'f' : 'm'), sk: n(1, 5, h % 5), hs: n(2, 4, (h >> 3) % 4), hc: n(3, 6, (h >> 5) % 6), tc: n(4, 8, (h >> 7) % 8), bc: n(5, 6, (h >> 9) % 6), st: n(6, 4, 0) };
+}
+function makeAvatar(u) {
+  const L = lookOf(u), F = L.g === 'f', stn = STYLES[L.g][L.st][0], worker = stn === 'worker', dress = stn === 'dress';
+  const g = new THREE.Group(), hum = new THREE.Group();
+  const skinC = new THREE.Color(SKIN_C[L.sk]), skin = flat(SKIN_C[L.sk]), skinD = flat(skinC.clone().multiplyScalar(.88).getHex()), hairM = flat(HAIR_C[L.hc]);
+  const uni = flat(0x1f8f86), vest = flat(ORANGE), hat = flat(0xff9a1f), tape = flat(0xdfe3e6), dark = flat(0x1c1c1c), white = flat(0xf6f6f6), lip = flat(F ? 0xc45a6a : 0x7a3b32);
+  const top = worker ? uni : flat(TOP_C[L.tc]), pant = worker ? uni : flat(BOT_C[L.bc]);
+  const shirtM = worker ? vest : top, col = new THREE.Color(worker ? ORANGE : TOP_C[L.tc]);
+  const M = (geo, m, x, y, z, sx, sy, sz) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); if (sx) o.scale.set(sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz); return o; };
+  const small = o => { o.userData.ns = 1; return o; };
+  // হাত: কাঁধ (গোল) + ওপরের বাহু (জামা) + নিচের বাহু (চামড়া/জামা) + হাতের তালু
+  const longSl = stn !== 'tee' && stn !== 'dress', sl = longSl ? .6 : .24;
+  const arm = x => {
+    const p = new THREE.Group(); p.position.set(x, 1.32, 0);
+    p.add(M(gs(F ? .074 : .09, 10, 8), top, 0, 0, 0), M(gc(F ? .068 : .082, F ? .058 : .07, sl, 10), top, 0, -sl / 2, 0));
+    if (sl < .6) p.add(M(gc(F ? .052 : .062, F ? .044 : .05, .6 - sl, 10), skin, 0, -sl - (.6 - sl) / 2, 0));
+    p.add(M(gs(F ? .048 : .056, 10, 8), skin, 0, -.64, 0, 1, 1.2, .85)); return p;
+  };
+  const sx = F ? .325 : .385, armL = arm(-sx), armR = arm(sx);
+  // পা: কোমর থেকে পায়ের পাতা পর্যন্ত, জুতো
+  const lm = dress ? skin : pant;
+  const leg = x => {
+    const p = new THREE.Group(); p.position.set(x, .78, 0);
+    p.add(M(gc(F ? .098 : .106, F ? .066 : .072, .76, 10), lm, 0, -.38, 0), M(gb(.17, .1, .3), dark, 0, -.71, .06), M(gs(.085, 8, 6), dark, 0, -.7, .17, 1, .62, 1)); return p;
+  };
+  const legL = leg(F ? -.11 : -.12), legR = leg(F ? .11 : .12);
+  // ধড়: বুক + কোমর (মেয়েদের কোমর সরু, নিতম্বের দিকে চওড়া)
+  if (F) hum.add(M(gc(.23, .185, .4, 12), top, 0, 1.19, 0, 1, 1, .68), M(gc(.185, .245, .3, 12), top, 0, .86, 0, 1, 1, .7));
+  else hum.add(M(gc(.285, .235, .4, 12), top, 0, 1.18, 0, 1, 1, .62), M(gc(.235, .225, .3, 12), top, 0, .86, 0, 1, 1, .66));
+  if (!dress) hum.add(M(gc(.22, .215, .18, 12), pant, 0, .73, 0, 1, 1, .68));
+  if (stn === 'panjabi') hum.add(M(gc(.275, .335, .74, 14), top, 0, .99, 0, 1, 1, .7));
+  if (stn === 'kameez') hum.add(M(gc(.235, .3, .72, 14), top, 0, .99, 0, 1, 1, .72));
+  if (dress) hum.add(M(gc(.2, .34, .5, 16), top, 0, .62, 0, 1, 1, .82));
+  if (worker) hum.add(M(gb(F ? .5 : .58, .5, .36), vest, 0, 1.08, 0), M(gb(F ? .52 : .6, .07, .38), tape, 0, 1.0, 0), M(gb(F ? .52 : .6, .07, .38), tape, 0, 1.2, 0));
+  // মাথা, ঘাড়, মুখ
+  hum.add(M(gc(.065, .075, .15, 8), skin, 0, 1.42, 0), M(gs(.2, 16, 12), skin, 0, 1.6, 0, .92, 1.08, .98));
+  for (const q of [-1, 1]) hum.add(
+    small(M(gs(.032, 8, 6), white, q * .072, 1.62, .176, 1, .8, .5)), small(M(gs(.018, 6, 5), dark, q * .072, 1.62, .198)),
+    small(M(gb(.07, .014, .02), hairM, q * .072, 1.67, .184)), small(M(gs(.045, 8, 6), skin, q * .19, 1.6, 0, .55, 1, .8)));
+  hum.add(small(M(gb(.035, .06, .05), skinD, 0, 1.585, .2)), small(M(gb(.08, .016, .02), lip, 0, 1.52, .192)));
+  if (F) for (const q of [-1, 1]) hum.add(small(M(gb(.05, .012, .02), dark, q * .072, 1.646, .19)));
+  // চুল
+  const hs = L.hs, cap = () => { const o = M(hairCapG, hairM, 0, 1.6, -.01, .92, 1.08, .98); o.rotation.x = -.5; return o; };
+  if (worker) { hum.add(M(capG, hat, 0, 1.65, 0), M(gb(.46, .04, .16), hat, 0, 1.65, .24)); }
+  else if (hs === 2 && !F) { const bz = flat(new THREE.Color(HAIR_C[L.hc]).lerp(skinC, .55).getHex()); const o = M(hairCapG, bz, 0, 1.6, -.01, .92, 1.08, .98); o.rotation.x = -.5; hum.add(o); }
+  else hum.add(cap());
+  if (!F && hs === 1 && !worker) for (const [x, y, z] of [[0, 1.79, .05], [-.09, 1.77, -.02], [.09, 1.77, 0]]) hum.add(M(gs(.07, 8, 6), hairM, x, y, z));
+  if (!F && hs === 3) hum.add(M(gs(.13, 10, 8), hairM, 0, 1.49, .085, 1.05, .7, .8), M(gb(.09, .02, .02), hairM, 0, 1.54, .198));
+  if (F && hs === 0) hum.add(M(gb(.42, .64, .1), hairM, 0, 1.28, -.17), M(gb(.07, .5, .2), hairM, -.2, 1.38, -.06), M(gb(.07, .5, .2), hairM, .2, 1.38, -.06));
+  if (F && hs === 1) { const t = M(gcap(.05, .34), hairM, 0, 1.45, -.27); t.rotation.x = .45; hum.add(t, M(gs(.06, 8, 6), tape, 0, 1.65, -.22)); }
+  if (F && hs === 2 && !worker) hum.add(M(gs(.095, 10, 8), hairM, 0, 1.8, -.1));
+  if (F && hs === 3) hum.add(M(gb(.46, .3, .1), hairM, 0, 1.47, -.17), M(gb(.07, .28, .24), hairM, -.2, 1.47, -.04), M(gb(.07, .28, .24), hairM, .2, 1.47, -.04));
+  hum.add(armL, armR, legL, legR);
+  hum.scale.setScalar(F ? .95 : 1);
   const gun = new THREE.Group(), brl = M(gc(.035, .035, .4, 6), mat(0x888888), 0, .03, .6); brl.rotation.x = Math.PI / 2;
   gun.add(M(gb(.1, .16, .5), mat(0x333333), 0, 0, .2), brl, M(gs(.09, 8, 6), mat(0xff3b30), 0, .15, .1), M(gb(.07, .2, .09), mat(0x222222), 0, -.15, .05));
   gun.scale.setScalar(1.6); gun.position.set(.34, 1.0, .3); gun.visible = false; hum.add(gun);
   const lb = label(players[u]?.name || '?');
   g.add(hum, M(shadowG, shadowM, 0, .06, 0), lb);
-  g.userData = { hum, shirt: vest, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
-  g.traverse(o => { if (o.isMesh && o.geometry !== shadowG) o.castShadow = true; });
+  g.userData = { hum, shirt: shirtM, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0, lk: (players[u] && players[u].look) || '' };
+  g.traverse(o => { if (o.isMesh && o.geometry !== shadowG && !o.userData.ns) o.castShadow = true; });
   scene.add(g); return g;
 }
 function syncAvatars() {
-  for (const u of Object.keys(players)) if (!av[u]) av[u] = makeAvatar(u);
+  for (const u of Object.keys(players)) { if (av[u] && av[u].userData.lk !== ((players[u] && players[u].look) || '')) { scene.remove(av[u]); delete av[u]; } if (!av[u]) av[u] = makeAvatar(u); }
   for (const u of Object.keys(av)) if (!players[u]) { scene.remove(av[u]); delete av[u]; }
 }
 function updateAvatars(dt) {
@@ -702,7 +755,8 @@ function updateAvatars(dt) {
     if (mv > 3.5 && !d.prop && (d.dust = (d.dust || 0) - dt) < 0) { d.dust = .14; emit(g.position.x, .1, g.position.z, (Math.random() - .5) * .6, .5, (Math.random() - .5) * .6, .45, dustM, .13, 0); }
     d.sp += (Math.min(mv, 7) - d.sp) * Math.min(1, dt * 10); d.ph += d.sp * dt * 2.2;
     const sw = Math.sin(d.ph) * Math.min(1, d.sp / 4) * .8;
-    d.legL.rotation.x = sw; d.legR.rotation.x = -sw; d.armL.rotation.x = -sw; d.armR.rotation.x = sw;
+    d.legL.rotation.set(sw, 0, 0); d.legR.rotation.set(-sw, 0, 0); d.armL.rotation.set(-sw, 0, 0); d.armR.rotation.set(sw, 0, 0); // প্রতি ফ্রেমে পুরো পোজ রিসেট (ঘোড়া থেকে নামার পর পা বেঁকে থাকত)
+    { const ac = acts[u], cyc = Math.floor(d.ph / (ac === 'horse' ? Math.PI * 2 : Math.PI)); if (cyc !== d.cy) { d.cy = cyc; if (room && p !== 'ludo' && d.sp > 1.6) footFx(u, g, ac); } }
     const sk = gameOn && u === state.seeker, ct = ((p === 'hide' || p === 'seek' || p === 'end') && !!caught[u]) || (p === 'ludo' && !!L && !!L.ps[u] && L.ps[u].out);
     const want = gameOn && !sk && !ct && PROPS[skin[u]] ? skin[u] : null;
     if (want !== d.ptype) { if (d.prop) { g.remove(d.prop); d.prop = null; } if (want) { d.prop = buildProp(want); g.add(d.prop); } d.ptype = want; }
@@ -891,20 +945,89 @@ function beep(pan, gain, f0 = 440, type = 'sine', dur = .34) {
     o.start(T); o.stop(T + dur + .03);
   } catch (e) {}
 }
-const popSound = () => beep(0, .25, 700, 'triangle', .1);
-const proxBeep = d => beep(0, .16, 1100 - d * 40, 'square', .07);
+/* ---------- আসল-ধাঁচের শব্দ: হাঁটা, সাঁতার, ঘোড়া, ঘণ্টা ---------- */
+function outPan(a, pan, g) { if (a.createStereoPanner) { const p = a.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(a.destination); } else g.connect(a.destination); }
+function nz(dur, vol, type, f, q, pan = 0, when = 0) { // ফিল্টার করা শব্দের ঝাপটা
+  try {
+    const a = audio(), n = Math.max(8, Math.floor(a.sampleRate * dur)), b = a.createBuffer(1, n, a.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+    const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain(); s.buffer = b; fl.type = type; fl.frequency.value = f; fl.Q.value = q; g.gain.value = vol;
+    s.connect(fl); fl.connect(g); outPan(a, pan, g); s.start(a.currentTime + when);
+  } catch (e) { }
+}
+function thump(f0, f1, dur, vol, pan = 0, when = 0) { // নিচু ধপ / গোল শব্দ
+  try {
+    const a = audio(), o = a.createOscillator(), g = a.createGain(), T = a.currentTime + when;
+    o.frequency.setValueAtTime(f0, T); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), T + dur); g.gain.setValueAtTime(vol, T); g.gain.exponentialRampToValueAtTime(.001, T + dur);
+    o.connect(g); outPan(a, pan, g); o.start(T); o.stop(T + dur + .03);
+  } catch (e) { }
+}
+function chime(pan, gain, f0) { // নরম ঘণ্টা (একঘেয়ে 'টিং' এর বদলে)
+  try {
+    const a = audio(), T = a.currentTime, m = a.createGain(); m.gain.value = 1; outPan(a, pan, m);
+    [[1, 1, 1.1], [2.76, .35, .6], [5.4, .12, .3]].forEach(([k, v, d]) => { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f0 * k; g.gain.setValueAtTime(.0001, T); g.gain.linearRampToValueAtTime(gain * v, T + .01); g.gain.exponentialRampToValueAtTime(.0008, T + d); o.connect(g); g.connect(m); o.start(T); o.stop(T + d + .05); });
+  } catch (e) { }
+}
+const RN = () => Math.random();
+const sfx0 = {
+  step: (v, p) => { nz(.075, 1.7 * v, 'bandpass', 600 + RN() * 500, 1.1, p); nz(.04, .5 * v, 'highpass', 3500, .7, p, .01); thump(115 + RN() * 35, 55, .1, .26 * v, p); }, // পায়ের মচমচ + ধপ
+  splash: (v, p) => { nz(.34, 2.2 * v, 'bandpass', 1500 + RN() * 300, .6, p); nz(.22, 1.6 * v, 'lowpass', 700, .7, p, .05); for (let i = 0; i < 2; i++) thump(380 + RN() * 300, 900, .07, .1 * v, p, .08 + i * .08); }, // পানির ছপছপ
+  hoof: (v, p) => { nz(.05, 2.4 * v, 'bandpass', 1100, 3.5, p); thump(190, 90, .09, .34 * v, p); nz(.05, 1.8 * v, 'bandpass', 900, 3.5, p, .11); thump(160, 80, .09, .24 * v, p, .11); }, // খুরের টগবগ
+  cow: (v, p) => { thump(110, 52, .16, .42 * v, p); nz(.09, 1.2 * v, 'bandpass', 500, 1.5, p); }
+};
+function footFx(u, g, act) {
+  const dx = g.position.x - me.x, dz = g.position.z - me.z, dist = Math.hypot(dx, dz), gm = state.phase === 'hide' || state.phase === 'seek';
+  if (dist > 28 || (gm && u !== uid && dist > 5)) return; // খেলার সময় দূরের পায়ের শব্দ শোনা যায় না
+  const v = (u === uid ? .7 : 1) / (1 + dist * .28), pan = u === uid ? 0 : Math.max(-1, Math.min(1, (dx * Math.cos(camYaw) - dz * Math.sin(camYaw)) / (dist + .5)));
+  (act === 'swim' ? sfx0.splash : act === 'horse' ? sfx0.hoof : act === 'cow' ? sfx0.cow : sfx0.step)(v, pan);
+}
+const popSound = () => { nz(.08, 2.2, 'highpass', 1200, .7); thump(520, 140, .12, .25); };
+const proxBeep = d => { thump(1000 - d * 40, 700, .09, .09); nz(.04, 1.2, 'bandpass', 2400, 3); };
+/* ---------- প্রপোজের রোমান্টিক গান (কোডে বানানো, ধীর ৬/৮ সুর) ---------- */
+let rTimer = null, rNext = 0, rStep = 0, rOut = null, rOn = false;
+const R_CH = [[60, 64, 67, 72], [57, 60, 64, 69], [57, 60, 65, 69], [55, 59, 62, 67]], R_BS = [48, 45, 41, 43], R_AR = [0, 1, 2, 3, 2, 1];
+const R_ML = [76, -1, -1, 79, -1, 76, 76, -1, 74, -1, 72, -1, 77, -1, -1, 81, -1, 77, 79, -1, 77, -1, 74, -1];
+function rTone(m, t, dur, vol, bell) {
+  const o = AC.createOscillator(), g = AC.createGain(); o.type = bell ? 'sine' : 'triangle'; o.frequency.value = mtof(m);
+  g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(vol, t + .015); g.gain.exponentialRampToValueAtTime(.0008, t + dur); o.connect(g); g.connect(rOut); o.start(t); o.stop(t + dur + .05);
+  if (bell) { const o2 = AC.createOscillator(), g2 = AC.createGain(); o2.frequency.value = mtof(m) * 2; g2.gain.setValueAtTime(.0001, t); g2.gain.linearRampToValueAtTime(vol * .25, t + .01); g2.gain.exponentialRampToValueAtTime(.0008, t + dur * .5); o2.connect(g2); g2.connect(rOut); o2.start(t); o2.stop(t + dur * .5 + .05); }
+}
+function romSched() {
+  const sp = 60 / 66 / 2;
+  while (rNext < AC.currentTime + .4) {
+    const bar = (rStep / 6 | 0) % 4, st = rStep % 6, ch = R_CH[bar];
+    if (st === 0) { rTone(R_BS[bar], rNext, 2.6, .16, false); for (const k of [0, 1, 2]) rTone(ch[k], rNext, 2.7, .022, false); }
+    rTone(ch[R_AR[st]], rNext, .9, .05, false);
+    const m = R_ML[rStep % 24]; if (m > 0) rTone(m, rNext, 1.4, .07, true);
+    rNext += sp; rStep++;
+  }
+}
+function romStart() {
+  if (!music || rOn) return; try { audio(); } catch (e) { return; }
+  if (!rOut) {
+    rOut = AC.createGain(); rOut.gain.value = 0; const dl = AC.createDelay(1), fb = AC.createGain(), lp = AC.createBiquadFilter();
+    dl.delayTime.value = .3; fb.gain.value = .38; lp.type = 'lowpass'; lp.frequency.value = 2400;
+    rOut.connect(AC.destination); rOut.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(AC.destination);
+  }
+  rOn = true; rOut.gain.setTargetAtTime(.9, AC.currentTime, .5); if (mOut) mOut.gain.setTargetAtTime(.04, AC.currentTime, .4);
+  rNext = AC.currentTime + .1; rStep = 0; clearInterval(rTimer); rTimer = setInterval(romSched, 120);
+}
+function romStop() {
+  if (!rOn) return; rOn = false; clearInterval(rTimer);
+  if (rOut) rOut.gain.setTargetAtTime(0, AC.currentTime, .7); if (mOut) mOut.gain.setTargetAtTime(.35, AC.currentTime + .8, .5);
+}
 let jit = 0;
 const relAngle = ta => Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)) - ta;
 const HINT_MIN = 15; // এর চেয়ে কাছে গেলে দূরত্ব/তীর আর দেখাবে না
 function playSignal() { // খোঁজকের জন্য ইঙ্গিত: কোন দিকে, কত দূরে
   const e = $('sig'); e.hidden = false; clearTimeout(e._t); e._t = setTimeout(() => e.hidden = true, 1300);
-  if (!iAmSeeker()) { if (hiders().includes(uid) && !caught[uid]) beep(0, .2); return; }
+  if (!iAmSeeker()) { if (hiders().includes(uid) && !caught[uid]) chime(0, .16, 660); return; }
   let best = null, bd = 1e9;
   for (const u of hiders()) { const p = pos[u]; if (caught[u] || !p) continue; const d = Math.hypot(p.x - me.x, p.z - me.z); if (d < bd) { bd = d; best = p; } }
   if (!best) return;
   jit = (Math.random() - .5) * .7; const ta = Math.atan2(best.x - me.x, best.z - me.z) + jit;
   const n = bd < 10 ? 4 : bd < 20 ? 3 : bd < 35 ? 2 : 1, f0 = 300 + Math.max(0, 40 - bd) * 8;
-  for (let i = 0; i < n; i++) setTimeout(() => beep(Math.max(-1, Math.min(1, Math.sin(relAngle(ta)))), .5, f0), i * 190);
+  for (let i = 0; i < n; i++) setTimeout(() => chime(Math.max(-1, Math.min(1, Math.sin(relAngle(ta)))), .34, f0 * 1.5), i * 220);
 }
 function hintUpdate() { // খোঁজক সবসময় সবচেয়ে কাছের লুকানোর দূরত্ব দেখে, ১৫ মিটারের মধ্যে গেলে আর দেখে না
   const h = $('hint');
@@ -1073,7 +1196,7 @@ setInterval(() => {
 
 
 /* ---------- মজার অ্যাকশন: প্রপোজ, চড়, লাঠি, বসা, ঘুম, সাঁতার, গরু/ঘোড়ায় সওয়ারি (শুধু লবিতে) ---------- */
-let acts = {}, ACT = {}, SWIM = false, propFrom = null, propT = 0;
+let acts = {}, ACT = {}, SWIM = false, propFrom = null, propT = 0, romT = 0, balIv = 0;
 const seenFx = new Set(), FLO = [], PRJ = [], TXC = {}, zzT = {};
 const nm = u => (players[u] && players[u].name) || 'কেউ';
 const snd = (f, t = 'square', d = .12) => { try { audio(); beep(0, .5, f, t, d); } catch (e) { } };
@@ -1093,6 +1216,13 @@ const sfx = {
 };
 function sprTex(t) {
   if (TXC[t]) return TXC[t];
+  if (t[0] === '#') { // বেলুন
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    x.strokeStyle = '#ffffffcc'; x.lineWidth = 2; x.beginPath(); x.moveTo(64, 94); x.bezierCurveTo(50, 108, 78, 118, 64, 128); x.stroke();
+    x.fillStyle = t; x.beginPath(); x.ellipse(64, 50, 33, 42, 0, 0, 7); x.fill(); x.beginPath(); x.moveTo(64, 90); x.lineTo(57, 100); x.lineTo(71, 100); x.fill();
+    x.fillStyle = '#ffffff66'; x.beginPath(); x.ellipse(50, 34, 8, 14, -.5, 0, 7); x.fill();
+    return TXC[t] = new THREE.CanvasTexture(c);
+  }
   const wide = t.length > 4 || /[A-Za-z]/.test(t), c = document.createElement('canvas'), w = wide ? 256 : 128; c.width = w; c.height = 128;
   const x = c.getContext('2d'); x.font = (wide ? 'bold 62px' : '90px') + ' sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
   if (wide) { x.lineWidth = 9; x.strokeStyle = '#000'; x.strokeText(t, w / 2, 68); x.fillStyle = '#fff'; }
@@ -1101,6 +1231,8 @@ function sprTex(t) {
 function mkSpr(t, s) { const tx = sprTex(t), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, depthWrite: false, depthTest: false, transparent: true })), wd = tx.image.width > 128; sp.scale.set(wd ? 2 * s : s, wd ? s : s, 1); sp.renderOrder = 9; return sp; }
 function flo(u, t, life = 2, sc = 1.1, y0 = 2.5) { const g = av[u]; if (!g) return null; const sp = mkSpr(t, sc); sp.position.set(0, y0, 0); g.add(sp); FLO.push({ sp, g, t0: performance.now(), life: life * 1000, y0 }); return sp; }
 const kill = sp => { const f = FLO.find(x => x.sp === sp); if (f) f.life = 0; };
+const BAL = ['#ff4f7a', '#ffd23f', '#3fa7ff', '#7be07b', '#c77dff', '#ff8a3d'];
+function balloons(x, z, n) { for (let i = 0; i < n; i++) { const a = RN() * 6.28, r = .5 + RN() * 1.8; prj(BAL[RN() * 6 | 0], x + Math.cos(a) * r, .6 + RN() * .6, z + Math.sin(a) * r, (RN() - .5) * .5, 1.1 + RN() * .8, (RN() - .5) * .5, 9 + RN() * 3, -.12, 1.1 + RN() * .5, false); } }
 function prj(t, x, y, z, vx, vy, vz, life, g, sc, bounce) { const sp = mkSpr(t, sc); sp.position.set(x, y, z); scene.add(sp); PRJ.push({ sp, vx, vy, vz, g, bounce, t0: performance.now(), life: life * 1000 }); }
 function mk(parts) { const g = new THREE.Group(); for (const [w, h, d, c, x, y, z] of parts) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.position.set(x, y, z); m.castShadow = true; g.add(m); } return g; }
 function mkMount(k) {
@@ -1176,12 +1308,12 @@ function funTick(dt) {
   for (let i = FLO.length - 1; i >= 0; i--) { const f = FLO[i], k = (T - f.t0) / f.life; if (k >= 1) { f.g.remove(f.sp); FLO.splice(i, 1); continue; } f.sp.position.y = f.y0 + k * .8; f.sp.material.opacity = k > .7 ? (1 - k) / .3 : 1; }
   for (let i = PRJ.length - 1; i >= 0; i--) {
     const o = PRJ[i]; if (T - o.t0 > o.life) { scene.remove(o.sp); PRJ.splice(i, 1); continue; }
+    const rem = o.life - (T - o.t0); if (rem < 1200) o.sp.material.opacity = Math.max(0, rem / 1200); if (o.g < 0) o.sp.position.x += Math.sin(T / 700 + o.sp.id) * .5 * dt; // বেলুন দোলে, শেষে মিলিয়ে যায়
     o.vy -= o.g * dt; o.sp.position.x += o.vx * dt; o.sp.position.y += o.vy * dt; o.sp.position.z += o.vz * dt;
     if (o.bounce && o.sp.position.y < .15) { o.sp.position.y = .15; o.vy = Math.abs(o.vy) * .35; o.vx *= .6; o.vz *= .6; }
   }
   const FLT = { sleep: ['💤', 1.8, 1.2], swim: ['💦', .9, 1.1], dance: ['🎵', 1.1, 2.2], eat: ['🍚', 2.2, 1.6] }; // কাজ → [ভাসমান ইমোজি, বিরতি, উচ্চতা]
-  for (const u in acts) { const fl = FLT[acts[u]]; if (fl && av[u] && ((zzT[u] = (zzT[u] || 0) - dt) < 0)) { zzT[u] = fl[1]; flo(u, fl[0], 1.6, .8, fl[2]); } }
-  hoofT -= dt; if (hoofT < 0 && acts[uid] === 'horse' && av[uid] && av[uid].userData.sp > 2) { hoofT = .32; sfx.hoof(); }
+  for (const u in acts) { const fl = FLT[acts[u]]; if (fl && av[u] && ((zzT[u] = (zzT[u] || 0) - dt) < 0)) { zzT[u] = fl[1]; flo(u, fl[0], 1.6, .8, fl[2]); if (acts[u] === 'swim') footFx(u, av[u], 'swim'); } }
   if (!room) return;
   if (state.phase !== 'lobby' && acts[uid]) { if (acts[uid] === 'swim') leaveSwim(); setAct(null); }
   if (acts[uid] === 'swim') { const dx = me.x - PX, dz = me.z - PZ, d = Math.hypot(dx, dz); if (d > PR - .6) { me.x = PX + dx / d * (PR - .6); me.z = PZ + dz / d * (PR - .6); } }
@@ -1200,7 +1332,7 @@ function toggleAct(k) {
     if (d > PR + 5) { toast('পুকুরের কাছে যান (পুকুর পূর্ব দিকে)'); return; }
     me.x = PX + dx / d * (PR - 1.4); me.z = PZ + dz / d * (PR - 1.4); sendPos(true);
   }
-  setAct(k);
+  setAct(k); if (k === 'swim') sfx0.splash(.9, 0);
 }
 let tapDown = null, pickU = null, pickT = 0;
 cv.addEventListener('pointerdown', e => { tapDown = { x: e.clientX, y: e.clientY, t: performance.now() }; });
@@ -1264,17 +1396,19 @@ function fxHandle(v) {
     setTimeout(() => { hit(to, f, { k: 'fly', D: 1, lie: 1.5, H: 1.8, dur: 2.9, dist: 5.5 }); flo(to, '💥', 1.5, 1.4, 2); sfx.thud(); }, 380);
   } else if (v.k === 'prop') {
     const a = A(f, { k: 'kneel', dur: 25 }); a.spr = flo(f, '💍', 25, 1, 1.4);
+    romStart(); clearTimeout(romT); romT = setTimeout(romStop, 26000); clearInterval(balIv); { let c = 0; balIv = setInterval(() => { const q = av[f]; if (!q || ++c > 34) { clearInterval(balIv); return; } balloons(q.position.x, q.position.z, 2); }, 700); } // রোমান্টিক গান + বেলুন
     if (to === uid) { propFrom = f; $('propTxt').textContent = nm(f) + ' তোমাকে প্রপোজ করেছে 💍❤️ — রাজি?'; $('propBox').hidden = false; clearTimeout(propT); propT = setTimeout(() => answer(false), 20000); }
     else if (f === uid) toast('প্রপোজ পাঠানো হয়েছে… উত্তরের অপেক্ষা 💌');
     if (isHost() && isBot(to)) setTimeout(() => fxSend({ k: 'ans', f: to, to: f, ok: Math.random() < .5 }), 2200);
   } else if (v.k === 'ans') {
-    dropAct(to);
+    dropAct(to); clearInterval(balIv);
     if (v.ok) {
+      { const q = av[f], w = av[to]; if (q && w) balloons((q.position.x + w.position.x) / 2, (q.position.z + w.position.z) / 2, 16); } clearTimeout(romT); romT = setTimeout(romStop, 9000);
       A(to, { k: 'carry', with: f, dur: 4.2, lock: to === uid }); A(f, { k: 'carried', with: to, dur: 4.2, lock: f === uid });
       let n = 0; const iv = setInterval(() => { flo(n % 2 ? f : to, n % 3 ? '❤️' : '💋', 1.6, 1, 2.4); if (!(n % 3)) sfx.kiss(); if (++n > 7) clearInterval(iv); }, 450);
       if (f === uid || to === uid) toast('💖 ' + nm(to) + ' আর ' + nm(f) + ' — প্রেম হয়ে গেল!');
     } else {
-      A(f, { k: 'throw', dur: 1.1 }); flo(f, '😠', 1.8, 1.1);
+      romStop(); A(f, { k: 'throw', dur: 1.1 }); flo(f, '😠', 1.8, 1.1);
       setTimeout(() => {
         const s = av[f], t = av[to]; if (!s || !t) return;
         const sx = s.position.x, sz = s.position.z, tx = t.position.x, tz = t.position.z, Tt = .5, G = 6;
@@ -1288,8 +1422,8 @@ function fxHandle(v) {
     }
   }
 }
-function funReset() { for (const u in ACT) dropAct(u); acts = {}; pickU = null; atkAt = 0; for (const u in hitAt) delete hitAt[u]; SWIM = false; propFrom = null; clearTimeout(propT); for (const o of PRJ) scene.remove(o.sp); PRJ.length = 0; for (const f of FLO) f.g.remove(f.sp); FLO.length = 0; }
-$('funBtn').onclick = () => { $('chatBox').hidden = true; const b = $('funBox'); b.hidden = !b.hidden; };
+function funReset() { clearInterval(balIv); clearTimeout(romT); romStop(); for (const u in ACT) dropAct(u); acts = {}; pickU = null; atkAt = 0; for (const u in hitAt) delete hitAt[u]; SWIM = false; propFrom = null; clearTimeout(propT); for (const o of PRJ) scene.remove(o.sp); PRJ.length = 0; for (const f of FLO) f.g.remove(f.sp); FLO.length = 0; }
+$('funBtn').onclick = () => { $('chatBox').hidden = true; $('lookBox').hidden = true; const b = $('funBox'); b.hidden = !b.hidden; };
 $('funBox').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (!b) return; $('funBox').hidden = true; doFun(b.dataset.f); });
 $('pYes').onclick = () => answer(true); $('pNo').onclick = () => answer(false);
 
@@ -1323,3 +1457,24 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, cam);
   const bt = document.getElementById('boot'); if (bt && !bt.classList.contains('out') && t > 3200) { bt.classList.add('out'); setTimeout(() => bt.remove(), 800); } // লোগো অন্তত ~৩ সেকেন্ড দেখায়
 });
+
+/* ---------- চরিত্র ও পোশাক বদলানো ---------- */
+const curLook = () => { const a = myLook.split('|'); return { g: a[0], sk: +a[1], hs: +a[2], hc: +a[3], tc: +a[4], bc: +a[5], st: +a[6] }; };
+function commitLook(str) { myLook = localStorage.look = str; if (room) update(ref(db, `rooms/${room}/players/${uid}`), { look: myLook }); renderLook(); }
+function renderLook() {
+  const l = curLook(), hx = c => '#' + c.toString(16).padStart(6, '0');
+  const sw = (k, arr, cur) => `<div class="sw">${arr.map((c, i) => `<i data-k="${k}" data-v="${i}" style="background:${hx(c)}" class="${i === cur ? 'on' : ''}"></i>`).join('')}</div>`;
+  const bt = (k, arr, cur) => `<div class="ob">${arr.map((t, i) => `<button data-k="${k}" data-v="${i}" class="${i === cur ? 'on' : ''}">${t}</button>`).join('')}</div>`;
+  $('lookBox').innerHTML = `<b>👕 চরিত্র ও পোশাক</b><div class="ob"><button data-k="g" data-v="m" class="${l.g === 'm' ? 'on' : ''}">👦 ছেলে</button><button data-k="g" data-v="f" class="${l.g === 'f' ? 'on' : ''}">👧 মেয়ে</button></div>`
+    + `<small>গায়ের রং</small>${sw('sk', SKIN_C, l.sk)}<small>চুলের ধরন</small>${bt('hs', HAIRS[l.g], l.hs)}<small>চুলের রং</small>${sw('hc', HAIR_C, l.hc)}`
+    + `<small>পোশাক</small>${bt('st', STYLES[l.g].map(x => x[1]), l.st)}<small>জামার রং</small>${sw('tc', TOP_C, l.tc)}<small>প্যান্ট / নিচের রং</small>${sw('bc', BOT_C, l.bc)}`
+    + `<div class="ob"><button data-k="rnd">🎲 এলোমেলো</button><button data-k="x">✔ ঠিক আছে</button></div>`;
+}
+$('lookBox').addEventListener('click', e => {
+  const b = e.target.closest('[data-k]'); if (!b) return; const k = b.dataset.k, v = b.dataset.v;
+  if (k === 'x') { $('lookBox').hidden = true; return; }
+  if (k === 'rnd') return commitLook(randLook());
+  const o = curLook(), l = Object.assign({}, o, { [k]: k === 'g' ? v : +v }); if (l.g !== o.g) { l.hs = 0; l.st = 0; }
+  commitLook([l.g, l.sk, l.hs, l.hc, l.tc, l.bc, l.st].join('|'));
+});
+$('lookBtn').onclick = () => { $('chatBox').hidden = true; $('funBox').hidden = true; const b = $('lookBox'); b.hidden = !b.hidden; if (!b.hidden) renderLook(); };

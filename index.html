@@ -120,6 +120,14 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #chatIn{padding:.4em .6em}#chatSend{padding:.4em .8em}
 #funBox{position:fixed;right:calc(max(10px,env(safe-area-inset-right)) + 62px);top:56px;width:min(300px,58vw);display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:#122a1af2;border:1px solid #ffffff30;border-radius:14px;padding:8px;z-index:4;max-height:calc(100vh - 70px);overflow:auto;box-shadow:0 8px 24px #0007}
 #funBox button{padding:.35em .1em;display:flex;flex-direction:column;align-items:center;font-size:1.3rem;line-height:1.2}#funBox small{font-size:.58rem}
+#lookBox{position:fixed;right:calc(max(10px,env(safe-area-inset-right)) + 62px);top:56px;width:min(300px,62vw);background:#122a1af2;border:1px solid #ffffff30;border-radius:14px;padding:10px;z-index:4;max-height:calc(100vh - 70px);overflow:auto;box-shadow:0 8px 24px #0007;display:flex;flex-direction:column;gap:5px}
+#lookBox small{opacity:.75;font-size:.72rem;margin-top:3px}
+#lookBox .sw{display:flex;flex-wrap:wrap;gap:6px}
+#lookBox .sw i{width:26px;height:26px;border-radius:50%;border:2px solid #ffffff55;cursor:pointer;display:block}
+#lookBox .sw i.on{border-color:#fff;box-shadow:0 0 0 2px #ffb84a}
+#lookBox .ob{display:flex;flex-wrap:wrap;gap:5px}
+#lookBox .ob button{padding:.3em .6em;font-size:.82rem;min-width:0}
+#lookBox .ob button.on{outline:2px solid #ffb84a}
 #propBox{position:fixed;left:50%;top:22%;transform:translateX(-50%);background:#3a1030f5;border:2px solid #ff7ab8;border-radius:16px;padding:14px 18px;z-index:8;text-align:center;font-size:1.05rem;display:flex;flex-direction:column;gap:10px;box-shadow:0 8px 30px #000a;max-width:86vw}
 #propBox .row{display:flex;gap:10px;justify-content:center}
 </style>
@@ -184,7 +192,8 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 
 <div id="lu" hidden></div><button id="roll" hidden>🎲 ছুড়ুন</button>
 <div id="inv" hidden></div>
-<div id="cbar" hidden><button id="chatBtn">💬<i id="chatBadge" hidden></i></button><button id="micBtn">🎧</button><button id="muteBtn" hidden>🔊</button><button id="funBtn">🎭</button></div>
+<div id="cbar" hidden><button id="chatBtn">💬<i id="chatBadge" hidden></i></button><button id="micBtn">🎧</button><button id="muteBtn" hidden>🔊</button><button id="funBtn">🎭</button><button id="lookBtn">👕</button></div>
+<div id="lookBox" hidden></div>
 <div id="funBox" hidden><button data-f="love">❤️<small>ভালোবাসা</small></button><button data-f="laugh">😂<small>হাসি</small></button><button data-f="like">👍<small>লাইক</small></button><button data-f="hi">💌<small>Hi পাঠাও</small></button><button data-f="prop">💍<small>প্রপোজ</small></button><button data-f="slap">🖐️<small>চড় মারো</small></button><button data-f="lathi">🏏<small>লাঠি মারো</small></button><button data-f="sit">🪑<small>বসো</small></button><button data-f="sleep">🛏️<small>ঘুমাও</small></button><button data-f="swim">🏊<small>সাঁতার</small></button><button data-f="cow">🐄<small>গরুতে চড়ো</small></button><button data-f="horse">🐴<small>ঘোড়ায় চড়ো</small></button><button data-f="dance">💃<small>নাচো</small></button><button data-f="eat">🍚<small>খাও</small></button></div>
 <div id="propBox" hidden><div id="propTxt"></div><div class="row"><button id="pYes">💖 হ্যাঁ</button><button id="pNo">💔 না</button></div></div>
 <div id="chatBox" hidden><div id="chatLog"></div><div class="row"><input id="chatIn" maxlength="120" placeholder="লিখুন…" autocomplete="off"><button id="chatSend">➤</button></div></div>
