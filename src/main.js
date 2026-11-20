@@ -125,15 +125,16 @@ onValue(ref(db, 'invites/' + uid), s => {
 });
 
 /* ---------- ফোনে সবসময় আড়াআড়ি (landscape) ---------- */
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 function goLandscape() {
+  if (NATIVE) return; // অ্যাপে ম্যানিফেস্টই আড়াআড়ি ধরে রাখে, JS দিয়ে আর ঘোরানো হয় না
   try {
     const d = document.documentElement;
     if (!document.fullscreenElement && d.requestFullscreen) { const r = d.requestFullscreen({ navigationUI: 'hide' }); r && r.catch && r.catch(() => {}); }
     const o = screen.orientation; if (o && o.lock) { const r = o.lock('landscape'); r && r.catch && r.catch(() => {}); }
   } catch (e) {}
 }
-goLandscape();
-addEventListener('pointerdown', () => { if (matchMedia('(pointer:coarse)').matches) goLandscape(); }, { once: true });
+addEventListener('pointerdown', () => { if (!NATIVE && matchMedia('(pointer:coarse)').matches) goLandscape(); }, { once: true });
 
 /* ---------- Menu buttons ---------- */
 $('create').onclick = async () => { if (ensureName()) await createRoom(); };
@@ -487,7 +488,7 @@ function makeAvatar(u) {
     M(gs(.03, 6, 5), mat(0x111111), -.07, 1.53, .18), M(gs(.03, 6, 5), mat(0x111111), .07, 1.53, .18), armL, armR, legL, legR);
   const gun = new THREE.Group(), brl = M(gc(.035, .035, .4, 6), mat(0x888888), 0, .03, .6); brl.rotation.x = Math.PI / 2;
   gun.add(M(gb(.1, .16, .5), mat(0x333333), 0, 0, .2), brl, M(gs(.09, 8, 6), mat(0xff3b30), 0, .15, .1), M(gb(.07, .2, .09), mat(0x222222), 0, -.15, .05));
-  gun.position.set(.3, 1.0, .25); gun.visible = false; hum.add(gun);
+  gun.scale.setScalar(1.6); gun.position.set(.34, 1.0, .3); gun.visible = false; hum.add(gun);
   const lb = label(players[u]?.name || '?');
   g.add(hum, M(shadowG, shadowM, 0, .06, 0), lb);
   g.userData = { hum, shirt, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
@@ -595,7 +596,7 @@ const ballMat = c => bm[c] || (bm[c] = new THREE.MeshBasicMaterial({ color: c })
 const splatG = new THREE.CircleGeometry(1, 10);
 let lastFire = 0;
 function spawnBall(v, mine) {
-  const m = new THREE.Mesh(gs(.13, 8, 6), ballMat(v.c)); m.position.set(v.x, v.y, v.z); scene.add(m);
+  const m = new THREE.Mesh(gs(.2, 10, 8), ballMat(v.c)); m.position.set(v.x, v.y, v.z); scene.add(m);
   balls.push({ m, x: v.x, y: v.y, z: v.z, dx: v.dx, dy: v.dy, dz: v.dz, c: v.c, mine: !!mine, life: 0 });
 }
 function splat(x, y, z, dx, dy, dz, c) {
@@ -690,7 +691,7 @@ function camPlace(dt) {
 }
 
 /* ---------- শব্দ, গান, সংকেত ---------- */
-let AC, music = localStorage.music !== 'off', mTimer = null, mStep = 0, mNext = 0, mOut = null, nb = null, hint = null, proxT = 0;
+let AC, music = localStorage.music !== 'off', mTimer = null, mStep = 0, mNext = 0, mOut = null, nb = null, proxT = 0;
 function audio() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
 addEventListener('pointerdown', () => { try { audio(); startMusic(); } catch (e) {} });
 function beep(pan, gain, f0 = 440, type = 'sine', dur = .34) {
@@ -704,21 +705,28 @@ function beep(pan, gain, f0 = 440, type = 'sine', dur = .34) {
 }
 const popSound = () => beep(0, .25, 700, 'triangle', .1);
 const proxBeep = d => beep(0, .16, 1100 - d * 40, 'square', .07);
-const relAngle = () => Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)) - hint.ta;
+let jit = 0;
+const relAngle = ta => Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)) - ta;
+const HINT_MIN = 15; // এর চেয়ে কাছে গেলে দূরত্ব/তীর আর দেখাবে না
 function playSignal() { // খোঁজকের জন্য ইঙ্গিত: কোন দিকে, কত দূরে
   const e = $('sig'); e.hidden = false; clearTimeout(e._t); e._t = setTimeout(() => e.hidden = true, 1300);
   if (!iAmSeeker()) { if (hiders().includes(uid) && !caught[uid]) beep(0, .2); return; }
   let best = null, bd = 1e9;
   for (const u of hiders()) { const p = pos[u]; if (caught[u] || !p) continue; const d = Math.hypot(p.x - me.x, p.z - me.z); if (d < bd) { bd = d; best = p; } }
   if (!best) return;
-  hint = { ta: Math.atan2(best.x - me.x, best.z - me.z) + (Math.random() - .5) * .7, until: performance.now() + 4500 };
+  jit = (Math.random() - .5) * .7; const ta = Math.atan2(best.x - me.x, best.z - me.z) + jit;
   const n = bd < 10 ? 4 : bd < 20 ? 3 : bd < 35 ? 2 : 1, f0 = 300 + Math.max(0, 40 - bd) * 8;
-  $('hd').textContent = `প্রায় ${bn(Math.max(5, Math.round(bd / 5) * 5))} মিটার`; $('hint').hidden = false;
-  for (let i = 0; i < n; i++) setTimeout(() => { if (hint) beep(Math.max(-1, Math.min(1, Math.sin(relAngle()))), .5, f0); }, i * 190);
+  for (let i = 0; i < n; i++) setTimeout(() => beep(Math.max(-1, Math.min(1, Math.sin(relAngle(ta)))), .5, f0), i * 190);
 }
-function hintUpdate() {
-  if (!hint) return;
-  if (performance.now() > hint.until) { hint = null; $('hint').hidden = true; } else $('arr').style.transform = `rotate(${relAngle()}rad)`;
+function hintUpdate() { // খোঁজক সবসময় সবচেয়ে কাছের লুকানোর দূরত্ব দেখে, ১৫ মিটারের মধ্যে গেলে আর দেখে না
+  const h = $('hint');
+  if (!room || state.phase !== 'seek' || !iAmSeeker()) { if (!h.hidden) h.hidden = true; return; }
+  let best = null, bd = 1e9;
+  for (const u of hiders()) { const p = pos[u]; if (caught[u] || !p) continue; const d = Math.hypot(p.x - me.x, p.z - me.z); if (d < bd) { bd = d; best = p; } }
+  if (!best || bd < HINT_MIN) { if (!h.hidden) h.hidden = true; return; }
+  h.hidden = false;
+  $('hd').textContent = `প্রায় ${bn(Math.round(bd))} মিটার`;
+  $('arr').style.transform = `rotate(${relAngle(Math.atan2(best.x - me.x, best.z - me.z) + jit)}rad)`;
 }
 function proxCheck(t) { // কাছে কেউ থাকলে ফায়ার বাটন লাল হয়ে বিপ বিপ করে
   const b = $('catch');
