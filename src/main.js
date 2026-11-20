@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, update, remove, onDisconnect, get, onChildAdded, onChildChanged, onChildRemoved } from 'firebase/database';
+import { getDatabase, ref, onValue, set, update, remove, onDisconnect, get, onChildAdded, onChildChanged, onChildRemoved, push, query, limitToLast } from 'firebase/database';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { firebaseConfig } from './firebase-config.js';
 
@@ -72,7 +72,7 @@ async function joinRoom(code, quiet) {
   await register(code);
   update(ref(db, 'online/' + uid), { room: code });
   subscribe(code);
-  $('menu').hidden = true; $('hud').hidden = false; $('joy').hidden = false;
+  $('menu').hidden = true; $('hud').hidden = false; $('joy').hidden = false; $('cbar').hidden = false; $('chatLog').innerHTML = ''; voiceUI();
   $('code').textContent = 'ঠিকানা: ' + code + ' ⧉';
   spawnLobby(); renderAll(); onPlayers();
   return true;
@@ -88,10 +88,13 @@ function subscribe(code) {
     onChildChanged(ref(db, b + 'pos'), s => { pos[s.key] = s.val(); }),
     onChildRemoved(ref(db, b + 'pos'), s => { delete pos[s.key]; }),
     onValue(ref(db, b + 'skin'), s => { skin = s.val() || {}; renderAll(); }),
+    onChildAdded(query(ref(db, b + 'chat'), limitToLast(30)), s => chatAdd(s.val())),
+    onValue(ref(db, b + 'voice'), s => { vcSet = s.val() || {}; voiceSync(); voiceUI(); }),
     onChildAdded(ref(db, b + 'shots'), s => { const v = s.val(); if (!v || seenShots.has(s.key) || now() - v.t > 3000) return; seenShots.add(s.key); spawnBall(v, false); })
   ];
 }
 function leaveRoom() {
+  voiceLeave(); vcSet = {}; chatN = 0;
   unsubs.forEach(f => f()); unsubs = [];
   if (room) {
     if (Object.keys(players).every(u => u === uid || isBot(u))) remove(ref(db, 'rooms/' + room));
@@ -100,8 +103,73 @@ function leaveRoom() {
   }
   room = null; players = {}; pos = {}; skin = {}; choices = {}; caught = {}; state = { phase: 'lobby' };
   if (L) ludoExit(); syncAvatars(); clearPaint(); seenShots.clear();
-  ['hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins', 'xh', 'hint'].forEach(i => $(i).hidden = true);
+  ['cbar', 'chatBox', 'hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins', 'xh', 'hint'].forEach(i => $(i).hidden = true);
   $('menu').hidden = false;
+}
+
+
+/* ---------- টেক্সট চ্যাট + ভয়েস চ্যাট (WebRTC, সিগন্যালিং Firebase দিয়ে) ---------- */
+let chatN = 0, vcMine = false, vcMuted = false, vcStream = null, vcPeers = {}, vcSet = {}, vcUn = null;
+const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' }] };
+function chatAdd(m) {
+  if (!m) return;
+  const l = $('chatLog'), d = document.createElement('div');
+  d.innerHTML = `<b>${esc(m.name || '?')}:</b> ${esc(m.text)}`;
+  l.appendChild(d); while (l.children.length > 60) l.firstChild.remove(); l.scrollTop = l.scrollHeight;
+  if (m.u !== uid && $('chatBox').hidden && now() - m.t < 8000) { chatN++; $('chatBadge').textContent = bn(chatN); $('chatBadge').hidden = false; toast((m.name || '?') + ': ' + m.text); }
+}
+function chatSend() { const i = $('chatIn'), t = i.value.trim().slice(0, 120); if (!t || !room) return; i.value = ''; push(ref(db, `rooms/${room}/chat`), { u: uid, name: myName || '?', text: t, t: now() }); }
+$('chatSend').onclick = chatSend;
+$('chatIn').addEventListener('keydown', e => { if (e.key === 'Enter') chatSend(); });
+$('chatBtn').onclick = () => { const b = $('chatBox'); b.hidden = !b.hidden; if (!b.hidden) { chatN = 0; $('chatBadge').hidden = true; $('chatLog').scrollTop = 1e9; } };
+$('micBtn').onclick = () => vcMine ? voiceLeave() : voiceJoin();
+$('muteBtn').onclick = () => { vcMuted = !vcMuted; vcStream && vcStream.getAudioTracks().forEach(t => t.enabled = !vcMuted); voiceUI(); };
+function voiceUI() {
+  const n = Object.keys(vcSet).length;
+  $('micBtn').textContent = vcMine ? '🎙️ ' + bn(n) : '🎧' + (n ? ' ' + bn(n) : '');
+  $('micBtn').className = vcMine ? 'y' : ''; $('muteBtn').hidden = !vcMine; $('muteBtn').textContent = vcMuted ? '🔇' : '🔊';
+}
+const sig = (to, d) => push(ref(db, `rooms/${room}/rtc/${to}`), { f: uid, d: JSON.stringify(d), t: now() });
+function voicePC(p) {
+  const pc = new RTCPeerConnection(ICE), o = { pc, q: [], rd: false, au: null };
+  vcPeers[p] = o;
+  vcStream.getTracks().forEach(t => pc.addTrack(t, vcStream));
+  pc.onicecandidate = e => e.candidate && sig(p, { c: e.candidate.toJSON() });
+  pc.ontrack = e => { if (!o.au) { o.au = new Audio(); o.au.autoplay = true; o.au.setAttribute('playsinline', ''); document.body.appendChild(o.au); } o.au.srcObject = e.streams[0]; o.au.play().catch(() => { }); };
+  pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' && vcPeers[p] === o) { voiceDrop(p); setTimeout(voiceSync, 1500); } };
+  return o;
+}
+function voiceDrop(p) { const o = vcPeers[p]; if (!o) return; try { o.pc.close(); } catch (e) { } if (o.au) { o.au.srcObject = null; o.au.remove(); } delete vcPeers[p]; }
+function voiceSync() {
+  for (const p in vcPeers) if (!vcMine || !vcSet[p]) voiceDrop(p);
+  if (!vcMine) return;
+  for (const p in vcSet) if (p !== uid && !vcPeers[p]) { const o = voicePC(p); if (uid < p) o.pc.createOffer().then(of => o.pc.setLocalDescription(of)).then(() => sig(p, { s: o.pc.localDescription.toJSON() })).catch(() => { }); }
+}
+async function voiceJoin() {
+  if (!room || vcMine) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('এই ব্রাউজারে ভয়েস চলবে না'); return; }
+  try { vcStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) { toast('মাইক্রোফোনের অনুমতি দিন'); return; }
+  vcMine = true; vcMuted = false;
+  const rr = ref(db, `rooms/${room}/rtc/${uid}`); onDisconnect(rr).remove(); await remove(rr);
+  vcUn = onChildAdded(rr, async s => {
+    const v = s.val(); remove(s.ref); if (!v || !vcMine || now() - v.t > 30000) return;
+    const d = JSON.parse(v.d), o = vcPeers[v.f] || voicePC(v.f), pc = o.pc;
+    try {
+      if (d.s) { await pc.setRemoteDescription(d.s); o.rd = true; for (const c of o.q.splice(0)) await pc.addIceCandidate(c).catch(() => { }); if (d.s.type === 'offer') { const an = await pc.createAnswer(); await pc.setLocalDescription(an); sig(v.f, { s: pc.localDescription.toJSON() }); } }
+      else if (d.c) { if (o.rd) pc.addIceCandidate(d.c).catch(() => { }); else o.q.push(d.c); }
+    } catch (e) { }
+  });
+  const vr = ref(db, `rooms/${room}/voice/${uid}`); onDisconnect(vr).remove(); await set(vr, true);
+  voiceUI(); voiceSync(); toast('ভয়েস চালু — বন্ধুরা আপনাকে শুনতে পাবে');
+}
+function voiceLeave() {
+  if (!vcMine) return; vcMine = false;
+  if (vcUn) { vcUn(); vcUn = null; }
+  if (room) { remove(ref(db, `rooms/${room}/voice/${uid}`)); remove(ref(db, `rooms/${room}/rtc/${uid}`)); }
+  for (const p in vcPeers) voiceDrop(p);
+  if (vcStream) { vcStream.getTracks().forEach(t => t.stop()); vcStream = null; }
+  voiceUI();
 }
 
 /* ---------- Online list + invites ---------- */
@@ -335,11 +403,11 @@ const BK = (y, c) => P(gb(1.2, .12, .3), 0, y, .02, c);
 const PROPS = {
   chair: prop('চেয়ার', [P(gb(.5, .08, .5), 0, .45, 0, WD), P(gb(.5, .6, .08), 0, .78, -.21, WD), ...legs(.45, .06, .2, .2, WD)], .4, 1.1, [.5, .5]),
   table: prop('টেবিল', [P(gb(1.4, .08, .9), 0, .8, 0, 0x9b6a3a), ...legs(.8, .08, .6, .35, 0x7d5229)], .8, .9, [1.4, .9]),
-  sofa: prop('সোফা', [P(gb(2, .5, .9), 0, .25, 0, 0x3f6ea8), P(gb(2, .55, .2), 0, .78, -.35, 0x345c8e), P(gb(.2, .6, .9), -1, .4, 0, 0x345c8e), P(gb(.2, .6, .9), 1, .4, 0, 0x345c8e)], 1.05, 1.2, [2, .9]),
+  sofa: prop('সোফা', [P(gb(2, .5, .9), 0, .25, 0, 0xb58a58), P(gb(2, .55, .2), 0, .78, -.35, 0x9c7447), P(gb(.2, .6, .9), -1, .4, 0, 0x9c7447), P(gb(.2, .6, .9), 1, .4, 0, 0x9c7447), P(gb(.45, .4, .12), -.55, .68, -.17, 0x8a2b2b), P(gb(.45, .4, .12), .55, .68, -.17, 0x5a3a24)], 1.05, 1.2, [2, .9]),
   bed: prop('খাট', [P(gb(2, .4, 1.4), 0, .2, 0, WD), P(gb(1.9, .2, 1.3), 0, .5, 0, 0xe8e0d0), P(gb(.5, .12, .35), -.7, .66, 0, 0xffffff), P(gb(.08, .9, 1.4), -1, .45, 0, 0x6e4521)], 1.1, .9, [2, 1.4]),
   cupboard: prop('আলমারি', [P(gb(1, 2, .5), 0, 1, 0, 0x7a4a24), P(gb(.03, 1.8, .03), 0, 1, .26, 0x2b1b0c)], .65, 2, [1, .5]),
   shelf: prop('বইয়ের তাক', [P(gb(1.4, 1.8, .4), 0, .9, 0, 0x7a4a24), BK(.5, 0xc0392b), BK(.95, 0x2e86c1), BK(1.4, 0xf1c40f)], .75, 1.8, [1.4, .4]),
-  tv: prop('টিভি', [P(gb(1.4, .5, .5), 0, .25, 0, 0x5b3a1e), P(gb(1.2, .75, .06), 0, .85, -.03, 0x2b2b2b), P(gb(1.1, .65, .08), 0, .85, 0, 0x111111)], .75, 1.25, [1.4, .5]),
+  tv: prop('টিভি', [P(gb(1.8, .4, .5), 0, .2, 0, 0x1b1b1b), P(gb(1.7, .95, .06), 0, 1.15, -.03, 0x0d0d0d), P(gb(1.6, .85, .08), 0, 1.15, 0, 0x14202a)], .9, 1.65, [1.8, .5]),
   lamp: prop('বাতি', [P(gc(.2, .25, .06, 10), 0, .03, 0, 0x444444), P(gc(.03, .03, 1.5, 6), 0, .8, 0, 0x444444), P(gc(.28, .16, .35, 10), 0, 1.65, 0, 0xffe08a)], .3, 1.85, [.4, .4]),
   plant: prop('গাছের টব', [P(gc(.3, .22, .4, 10), 0, .2, 0, 0xb5562e), P(gs(.4, 8, 6), 0, .7, 0, 0x2f8f3a), P(gs(.28, 8, 6), .2, .95, .1, 0x3aa347)], .45, 1.3, [.6, .6]),
   stool: prop('মোড়া', [P(gc(.3, .3, .45, 10), 0, .225, 0, 0xc58b4a)], .35, .5, [.6, .6]),
@@ -409,29 +477,39 @@ function house(cx, cz, k, W, D, wc, rc) {
   wall(-W / 2, D / 2, -.9, D / 2); wall(.9, D / 2, W / 2, D / 2); // সামনের দেয়ালে দরজা
   { const [x, z] = wp(0, D / 2); addS(gb(1.8, .6, .25), wc, x, 2.5, z, ry); const [a, b] = wp(0, D / 2 + .5); addS(gb(2.4, .15, .8), 0xb0a690, a, .075, b, ry);
     for (const sx of [-.95, .95]) { const [p, q] = wp(sx, D / 2); addS(gb(.12, 2.2, .32), 0x5a3a1e, p, 1.1, q, ry); } }
-  { const [x, z] = wp(0, 0); addS(gp(), 0xb98b5e, x, .03, z, ry, W - .3, 1, D - .3);
-    const [a, b] = wp(W / 4, .3); addS(gp(), 0xa8423a, a, .045, b, ry, 3.2, 1, 2.2);
-    const [e, f] = wp(-W / 2 + 2, -D / 2 + 2.3); addS(gp(), 0x3a6a8a, e, .045, f, ry, 3, 1, 1.8); }
+  { const [x, z] = wp(0, 0); addS(gp(), 0xeeece6, x, .03, z, ry, W - .3, 1, D - .3); // সাদা টাইলসের মেঝে
+    for (let t = -W / 2 + 1.5; t < W / 2 - .5; t += 1.5) { const [lx, lz] = wp(t, 0); addS(gp(), 0xcfcdc6, lx, .04, lz, ry, .04, 1, D - .3); }
+    for (let t = -D / 2 + 1.5; t < D / 2 - .5; t += 1.5) { const [lx, lz] = wp(0, t); addS(gp(), 0xcfcdc6, lx, .04, lz, ry, W - .3, 1, .04); }
+    const [a, b] = wp(W / 4, .3); addS(gp(), 0x6e4128, a, .05, b, ry, 3.6, 1, 2.6); addS(gp(), 0xa8683a, a, .06, b, ry, 3.0, 1, 2.0);
+    const [e, f] = wp(-W / 2 + 2.6, -D / 2 + 2.6); addS(gp(), 0x7a5a3e, e, .05, f, ry, 3.4, 1, 2.2); }
   addS(roofG, rc, cx, H + .9, cz, ry, (W / 2 + .55) / .7071, 1, (D / 2 + .55) / .7071);
   { const [x, z] = wp(W / 4, -D / 4); addS(gb(.6, 1.5, .6), 0x8a4b3a, x, H + 1.1, z, ry); }
-  const win = (lx, lz, an) => { const [x, z] = wp(lx, lz); addS(gb(.9, .7, .06), 0x2d4a5a, x, 1.6, z, ry + an); };
-  for (const d of [-.14, .14]) { win(0, -D / 2 + d, 0); win(-W / 2 + d, 0, Math.PI / 2); win(W / 2 + d, 0, Math.PI / 2); win(-W / 4, D / 2 + d, 0); win(W / 4, D / 2 + d, 0); }
+  const win = (lx, lz, an, ix, iz) => { // কাঠের ফ্রেম + কাচ + ভেতরে লাল পর্দা
+    for (const sd of [-1, 1]) {
+      const [x, z] = wp(lx + ix * sd * .14, lz + iz * sd * .14); addS(gb(1.5, 1.3, .06), 0x8a5a2b, x, 1.6, z, ry + an);
+      addS(gb(1.28, 1.08, .08), 0xb5dcec, x, 1.6, z, ry + an);
+    }
+    const tx = an ? 0 : 1, tz = an ? 1 : 0;
+    for (const sd of [-1, 1]) { const [x, z] = wp(lx + tx * sd * .85 + ix * .24, lz + tz * sd * .85 + iz * .24); addS(gb(.34, 2.0, .12), 0xc0262d, x, 1.55, z, ry + an); }
+  };
+  win(0, -D / 2, 0, 0, 1); win(-W / 2, 0, Math.PI / 2, 1, 0); win(W / 2, 0, Math.PI / 2, -1, 0); win(-W / 4, D / 2, 0, 0, -1); win(W / 4, D / 2, 0, 0, -1);
+  { const [x, z] = wp(0, 0); addS(gc(.02, .02, 1.4, 5), 0x333333, x, 3.7, z); addS(gc(.15, .35, .3, 8), 0xd9b36a, x, 2.95, z); } // ঝোলানো বাতি
   const fu = (t, lx, lz, an = 0) => {
     const [x, z] = wp(lx, lz); putProp(t, x, z, ry + an);
     const o = Math.round((ry + an) / (Math.PI / 2)) & 1, [fw, fd] = PROPS[t].fp, hw = (o ? fd : fw) / 2, hd = (o ? fw : fd) / 2;
     boxes.push({ x1: x - hw, x2: x + hw, z1: z - hd, z2: z + hd, h: PROPS[t].h });
   };
-  fu('sofa', -W / 2 + 1.4, -D / 2 + .8); fu('shelf', 0, -D / 2 + .35); fu('bed', W / 2 - 1.4, -D / 2 + .9);
+  fu('sofa', -W / 2 + 1.4, -D / 2 + .8); fu('shelf', 2.2, -D / 2 + .35); fu('bed', W / 2 - 1.4, -D / 2 + .9);
   fu('table', W / 4, .3); fu('chair', W / 4 - 1.1, .5, Math.PI / 2); fu('chair', W / 4 + 1.1, .2, -Math.PI / 2); fu('chair', W / 4, 1.25, Math.PI); fu('chair', W / 4, -.65);
-  fu('cupboard', -W / 2 + .5, .2, Math.PI / 2); fu('cupboard', -W / 2 + .5, 1.8, Math.PI / 2);
+  fu('cupboard', -W / 2 + .5, 2.2, Math.PI / 2); fu('cupboard', -W / 2 + .5, 3.3, Math.PI / 2);
   fu('tv', W / 2 - .4, D / 4, -Math.PI / 2); fu('lamp', -W / 2 + .45, D / 2 - .6); fu('plant', W / 2 - .5, D / 2 - .6); fu('stool', -1.8, 1.6);
   const hx = (odd ? D : W) / 2, hz = (odd ? W : D) / 2;
   hbs.push({ x1: cx - hx - .55, x2: cx + hx + .55, z1: cz - hz - .55, z2: cz + hz + .55, cx, cz, hw: hx + .55, hd: hz + .55 });
   rooms.push({ x1: cx - hx + .13, x2: cx + hx - .13, z1: cz - hz + .13, z2: cz + hz - .13 });
 }
-const wallCols = [0xe3cfa6, 0xd2a679, 0xb9c9a0, 0xe6d9c0, 0xc9d6dd], roofCols = [0x8fa1aa, 0xb68b45, 0x9a4f2f, 0x6e7f8a];
+const wallCols = Array(5).fill(0xdcdcdf), roofCols = Array(4).fill(0x9a4f2f); // সব ঘর একই স্ট্যান্ডার্ড
 for (let i = 0; i < 9; i++) {
-  const W = 11 + (R() < .5 ? 2 : 0), D = 9 + (R() < .5 ? 1 : 0), p = spot(Math.max(W, D) / 2 + 2.9, .3, 30, 1);
+  const W = 12, D = 10, p = spot(Math.max(W, D) / 2 + 2.9, .3, 30, 1);
   if (p) house(p.x, p.z, R() * 4 | 0, W, D, wallCols[i % 5], roofCols[i % 4]);
 }
 const inHb = (x, z, m = 0) => hbs.some(h => x > h.x1 - m && x < h.x2 + m && z > h.z1 - m && z < h.z2 + m);
@@ -509,25 +587,28 @@ function label(txt) {
   s.scale.set(2.6, .65, 1); s.position.y = 2.5; return s;
 }
 const av = {};
-function makeAvatar(u) {
+const ORANGE = 0xff8a1c;
+const flat = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+const capG = new THREE.SphereGeometry(.27, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), headG = new THREE.SphereGeometry(.22, 8, 6);
+function makeAvatar(u) { // সবাই একই স্ট্যান্ডার্ড লো-পলি শ্রমিক: কমলা হেলমেট + কমলা ভেস্ট + টিল ইউনিফর্ম
+  const col = new THREE.Color(ORANGE);
   let h = 0; for (const ch of u) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const col = new THREE.Color().setHSL((h % 360) / 360, .55, .5);
-  const g = new THREE.Group(), hum = new THREE.Group(), shirt = new THREE.MeshLambertMaterial({ color: col }), skin = mat(SKINS[h % 4]), pant = mat(PANTS[h % 3]);
+  const g = new THREE.Group(), hum = new THREE.Group(), vest = new THREE.MeshLambertMaterial({ color: col, flatShading: true });
+  const skin = flat(SKINS[h % 4]), uni = flat(0x1f8f86), pant = flat(0x187a73), dark = flat(0x1c1c1c), hat = flat(0xff9a1f), tape = flat(0xdfe3e6);
   const M = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); return o; };
-  const limb = (w, len, x, y, m, tip, ty) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.add(M(gcap(w * .62, Math.max(.01, len - w * 1.24)), m, 0, -len / 2, 0)); tip.position.y = ty; p.add(tip); return p; };
-  const shoe = () => M(gb(.2, .1, .3), mat(0x222222), 0, 0, .05);
-  const armL = limb(.14, .58, -.34, 1.28, shirt, M(gs(.08, 8, 6), skin, 0, 0, 0), -.6), armR = limb(.14, .58, .34, 1.28, shirt, M(gs(.08, 8, 6), skin, 0, 0, 0), -.6);
-  const legL = limb(.18, .7, -.13, .7, pant, shoe(), -.66), legR = limb(.18, .7, .13, .7, pant, shoe(), -.66);
-  const tor = M(gcap(.25, .26), shirt, 0, 1, 0); tor.scale.z = .72;
-  const hr = M(hairG, mat(0x1a1410), 0, 1.6, 0); hr.scale.setScalar(1.22);
-  hum.add(tor, M(gs(.25, 14, 10), skin, 0, 1.58, 0), hr,
-    M(gs(.038, 6, 5), mat(0x111111), -.09, 1.6, .22), M(gs(.038, 6, 5), mat(0x111111), .09, 1.6, .22), armL, armR, legL, legR);
+  const limb = (w, len, x, y, m, tip, ty) => { const p = new THREE.Group(); p.position.set(x, y, 0); p.add(M(gb(w, len, w), m, 0, -len / 2, 0)); tip.position.y = ty; p.add(tip); return p; };
+  const hand = () => M(gb(.15, .15, .15), skin, 0, 0, 0), shoe = () => M(gb(.23, .12, .34), dark, 0, 0, .06);
+  const armL = limb(.17, .6, -.37, 1.32, uni, hand(), -.66), armR = limb(.17, .6, .37, 1.32, uni, hand(), -.66);
+  const legL = limb(.21, .76, -.14, .78, pant, shoe(), -.72), legR = limb(.21, .76, .14, .78, pant, shoe(), -.72);
+  hum.add(M(gb(.54, .62, .32), uni, 0, 1.03, 0), M(gb(.58, .5, .36), vest, 0, 1.08, 0), M(gb(.6, .07, .38), tape, 0, 1.0, 0), M(gb(.6, .07, .38), tape, 0, 1.2, 0),
+    M(headG, skin, 0, 1.58, 0), M(capG, hat, 0, 1.64, 0), M(gb(.46, .04, .16), hat, 0, 1.64, .24),
+    M(gb(.06, .06, .04), dark, -.09, 1.57, .2), M(gb(.06, .06, .04), dark, .09, 1.57, .2), armL, armR, legL, legR);
   const gun = new THREE.Group(), brl = M(gc(.035, .035, .4, 6), mat(0x888888), 0, .03, .6); brl.rotation.x = Math.PI / 2;
   gun.add(M(gb(.1, .16, .5), mat(0x333333), 0, 0, .2), brl, M(gs(.09, 8, 6), mat(0xff3b30), 0, .15, .1), M(gb(.07, .2, .09), mat(0x222222), 0, -.15, .05));
   gun.scale.setScalar(1.6); gun.position.set(.34, 1.0, .3); gun.visible = false; hum.add(gun);
   const lb = label(players[u]?.name || '?');
   g.add(hum, M(shadowG, shadowM, 0, .06, 0), lb);
-  g.userData = { hum, shirt, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
+  g.userData = { hum, shirt: vest, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
   g.traverse(o => { if (o.isMesh && o.geometry !== shadowG) o.castShadow = true; });
   scene.add(g); return g;
 }

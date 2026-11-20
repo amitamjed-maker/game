@@ -97,6 +97,13 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
   #hint{top:70px}
   #inv{top:70px}
 }
+#cbar{position:fixed;right:max(10px,env(safe-area-inset-right));top:56px;display:flex;flex-direction:column;gap:8px;z-index:4}
+#cbar button{padding:.45em .7em;position:relative;min-width:48px}
+#chatBadge{position:absolute;top:-6px;right:-6px;background:#e53935;border-radius:99px;min-width:18px;height:18px;font-size:11px;line-height:18px;font-style:normal;padding:0 4px}
+#chatBox{position:fixed;right:calc(max(10px,env(safe-area-inset-right)) + 62px);top:56px;width:min(280px,46vw);background:#122a1af2;border:1px solid #ffffff30;border-radius:14px;padding:8px;z-index:4;display:flex;flex-direction:column;gap:6px;box-shadow:0 8px 24px #0007}
+#chatLog{height:min(34vh,180px);overflow:auto;font-size:.85rem;text-align:left;user-select:text;-webkit-user-select:text}
+#chatLog div{padding:2px 0;word-break:break-word}#chatLog b{color:#ffd25e}
+#chatIn{padding:.4em .6em}#chatSend{padding:.4em .8em}
 </style>
 </head>
 <body>
@@ -159,6 +166,8 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 
 <div id="lu" hidden></div><button id="roll" hidden>🎲 ছুড়ুন</button>
 <div id="inv" hidden></div>
+<div id="cbar" hidden><button id="chatBtn">💬<i id="chatBadge" hidden></i></button><button id="micBtn">🎧</button><button id="muteBtn" hidden>🔊</button></div>
+<div id="chatBox" hidden><div id="chatLog"></div><div class="row"><input id="chatIn" maxlength="120" placeholder="লিখুন…" autocomplete="off"><button id="chatSend">➤</button></div></div>
 <div id="toast"></div>
 <script type="module" src="/src/main.js"></script>
 </body>
