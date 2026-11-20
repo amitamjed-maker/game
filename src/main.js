@@ -89,11 +89,14 @@ function subscribe(code) {
     onChildRemoved(ref(db, b + 'pos'), s => { delete pos[s.key]; }),
     onValue(ref(db, b + 'skin'), s => { skin = s.val() || {}; renderAll(); }),
     onChildAdded(query(ref(db, b + 'chat'), limitToLast(30)), s => chatAdd(s.val())),
+    onChildAdded(query(ref(db, b + 'fx'), limitToLast(10)), s => { const v = s.val(); if (!v || seenFx.has(s.key) || now() - v.t > 5000) return; seenFx.add(s.key); fxHandle(v); }),
+    onValue(ref(db, b + 'act'), s => { acts = s.val() || {}; if (SWIM && acts[uid] !== 'swim') SWIM = false; }),
     onValue(ref(db, b + 'voice'), s => { vcSet = s.val() || {}; voiceSync(); voiceUI(); }),
     onChildAdded(ref(db, b + 'shots'), s => { const v = s.val(); if (!v || seenShots.has(s.key) || now() - v.t > 3000) return; seenShots.add(s.key); spawnBall(v, false); })
   ];
 }
 function leaveRoom() {
+  funReset();
   voiceLeave(); vcSet = {}; chatN = 0;
   unsubs.forEach(f => f()); unsubs = [];
   if (room) {
@@ -103,7 +106,7 @@ function leaveRoom() {
   }
   room = null; players = {}; pos = {}; skin = {}; choices = {}; caught = {}; state = { phase: 'lobby' };
   if (L) ludoExit(); syncAvatars(); clearPaint(); seenShots.clear();
-  ['cbar', 'chatBox', 'hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins', 'xh', 'hint'].forEach(i => $(i).hidden = true);
+  ['cbar', 'chatBox', 'funBox', 'propBox', 'hud', 'joy', 'lobby', 'toss', 'coinov', 'blind', 'end', 'catch', 'morph', 'skins', 'xh', 'hint'].forEach(i => $(i).hidden = true);
   $('menu').hidden = false;
 }
 
@@ -121,7 +124,7 @@ function chatAdd(m) {
 function chatSend() { const i = $('chatIn'), t = i.value.trim().slice(0, 120); if (!t || !room) return; i.value = ''; push(ref(db, `rooms/${room}/chat`), { u: uid, name: myName || '?', text: t, t: now() }); }
 $('chatSend').onclick = chatSend;
 $('chatIn').addEventListener('keydown', e => { if (e.key === 'Enter') chatSend(); });
-$('chatBtn').onclick = () => { const b = $('chatBox'); b.hidden = !b.hidden; if (!b.hidden) { chatN = 0; $('chatBadge').hidden = true; $('chatLog').scrollTop = 1e9; } };
+$('chatBtn').onclick = () => { $('funBox').hidden = true; const b = $('chatBox'); b.hidden = !b.hidden; if (!b.hidden) { chatN = 0; $('chatBadge').hidden = true; $('chatLog').scrollTop = 1e9; } };
 $('micBtn').onclick = () => vcMine ? voiceLeave() : voiceJoin();
 $('muteBtn').onclick = () => { vcMuted = !vcMuted; vcStream && vcStream.getAudioTracks().forEach(t => t.enabled = !vcMuted); voiceUI(); };
 function voiceUI() {
@@ -706,6 +709,7 @@ function updateAvatars(dt) {
     d.shirt.color.set(sk ? 0xd64545 : ct ? (typeof caught[u] === 'number' ? caught[u] : 0x888888) : d.col);
     g.scale.y = ct ? .45 : 1;
     d.lb.visible = p === 'ludo' ? !!(L && L.ps[u]) : u !== uid && (p === 'lobby' || sk);
+    if (!d.prop) applyFun(u, g, d);
   }
 }
 
@@ -726,6 +730,7 @@ function spawnGame() {
   sendPos(true);
 }
 function canMove() {
+  if (ACT[uid] && ACT[uid].lock) return false;
   const p = state.phase, inG = (state.parts || []).includes(uid);
   if (p === 'lobby') return true;
   if (p === 'hide') return !iAmSeeker() && inG && !caught[uid];
@@ -822,7 +827,7 @@ function fire() {
 }
 
 function collide(r, o = me) {
-  for (const k of cols) { const ex = o.x - k.x, ez = o.z - k.z, m = k.r + r, d2 = ex * ex + ez * ez; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2); o.x = k.x + ex / d * m; o.z = k.z + ez / d * m; } }
+  for (const k of cols) { if (k === cols[0] && SWIM) continue; const ex = o.x - k.x, ez = o.z - k.z, m = k.r + r, d2 = ex * ex + ez * ez; if (d2 < m * m && d2 > 1e-6) { const d = Math.sqrt(d2); o.x = k.x + ex / d * m; o.z = k.z + ez / d * m; } }
   for (const b of boxes) {
     const cx = Math.max(b.x1, Math.min(o.x, b.x2)), cz = Math.max(b.z1, Math.min(o.z, b.z2)), dx = o.x - cx, dz = o.z - cz, d2 = dx * dx + dz * dz;
     if (d2 >= r * r) continue;
@@ -835,8 +840,9 @@ function step(dt) {
   let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - jz;
   let r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + jx;
   const l = Math.hypot(f, r); if (l < .08) return false;
+  if (acts[uid] === 'sit' || acts[uid] === 'sleep') setAct(null);
   if (l > 1) { f /= l; r /= l; }
-  const sp = iAmSeeker() && state.phase === 'seek' ? 6 : 5.2, sn = Math.sin(camYaw), cs = Math.cos(camYaw);
+  const sp = (iAmSeeker() && state.phase === 'seek' ? 6 : 5.2) * ({ horse: 1.7, cow: 1.25, swim: .55 }[acts[uid]] || 1), sn = Math.sin(camYaw), cs = Math.cos(camYaw);
   const dx = -sn * f + cs * r, dz = -cs * f - sn * r;
   me.x += dx * sp * dt; me.z += dz * sp * dt; if (!(state.phase === 'seek' && iAmSeeker())) me.ry = Math.atan2(dx, dz);
   collide(.4);
@@ -1064,6 +1070,170 @@ setInterval(() => {
   if (lu._h !== h) { lu._h = h; lu.innerHTML = h; }
 }, 250);
 
+
+/* ---------- মজার অ্যাকশন: প্রপোজ, চড়, লাঠি, বসা, ঘুম, সাঁতার, গরু/ঘোড়ায় সওয়ারি (শুধু লবিতে) ---------- */
+let acts = {}, ACT = {}, SWIM = false, propFrom = null, propT = 0;
+const seenFx = new Set(), FLO = [], PRJ = [], TXC = {}, zzT = {};
+const nm = u => (players[u] && players[u].name) || 'কেউ';
+const snd = (f, t = 'square', d = .12) => { try { audio(); beep(0, .5, f, t, d); } catch (e) { } };
+function sprTex(t) {
+  if (TXC[t]) return TXC[t];
+  const wide = t.length > 4 || /[A-Za-z]/.test(t), c = document.createElement('canvas'), w = wide ? 256 : 128; c.width = w; c.height = 128;
+  const x = c.getContext('2d'); x.font = (wide ? 'bold 62px' : '90px') + ' sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  if (wide) { x.lineWidth = 9; x.strokeStyle = '#000'; x.strokeText(t, w / 2, 68); x.fillStyle = '#fff'; }
+  x.fillText(t, w / 2, 68); return TXC[t] = new THREE.CanvasTexture(c);
+}
+function mkSpr(t, s) { const tx = sprTex(t), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, depthWrite: false, depthTest: false, transparent: true })), wd = tx.image.width > 128; sp.scale.set(wd ? 2 * s : s, wd ? s : s, 1); sp.renderOrder = 9; return sp; }
+function flo(u, t, life = 2, sc = 1.1, y0 = 2.5) { const g = av[u]; if (!g) return null; const sp = mkSpr(t, sc); sp.position.set(0, y0, 0); g.add(sp); FLO.push({ sp, g, t0: performance.now(), life: life * 1000, y0 }); return sp; }
+const kill = sp => { const f = FLO.find(x => x.sp === sp); if (f) f.life = 0; };
+function prj(t, x, y, z, vx, vy, vz, life, g, sc, bounce) { const sp = mkSpr(t, sc); sp.position.set(x, y, z); scene.add(sp); PRJ.push({ sp, vx, vy, vz, g, bounce, t0: performance.now(), life: life * 1000 }); }
+function mk(parts) { const g = new THREE.Group(); for (const [w, h, d, c, x, y, z] of parts) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.position.set(x, y, z); m.castShadow = true; g.add(m); } return g; }
+function mkMount(k) {
+  const cow = k === 'cow', bc = cow ? 0xf4f0e6 : 0x8a5a2b, LH = cow ? .55 : .8, by = LH + .3, g = new THREE.Group();
+  g.add(mk(cow
+    ? [[.8, .6, 1.5, bc, 0, by, 0], [.82, .3, .5, 0x3a2a22, 0, by + .1, .2], [.5, .5, .6, bc, 0, by + .15, 1.0], [.08, .2, .08, 0xeeeeee, -.2, by + .5, 1.0], [.08, .2, .08, 0xeeeeee, .2, by + .5, 1.0], [.12, .5, .12, 0x2b1b12, 0, by - .1, -.8]]
+    : [[.6, .65, 1.5, bc, 0, by, 0], [.3, .7, .35, bc, 0, by + .4, .7], [.3, .3, .65, bc, 0, by + .85, 1.05], [.08, .7, .2, 0x2a1c12, 0, by + .45, .55], [.12, .6, .12, 0x2a1c12, 0, by - .1, -.8]]));
+  g.userData.legs = [];
+  for (const [x, z] of [[-.25, .5], [.25, .5], [-.25, -.5], [.25, -.5]]) { const l = new THREE.Group(); l.position.set(x, LH, z); const m = new THREE.Mesh(new THREE.BoxGeometry(.15, LH, .15), mat(cow ? 0x3a2a22 : 0x5a3a1e)); m.position.y = -LH / 2; l.add(m); g.add(l); g.userData.legs.push(l); }
+  g.userData.off = by + .3 - .73; return g;
+}
+function syncExtra(g, d, pz) {
+  d.pz = pz; if (d.ex) { g.remove(d.ex); d.ex = null; }
+  if (pz === 'sit') d.ex = mk([[.55, .4, .5, 0x8a5a2b, 0, .2, -.05]]);
+  else if (pz === 'sleep') d.ex = mk([[1.1, .1, 2.3, 0xc0392b, 0, .05, -.95], [.7, .14, .4, 0xf5f5f5, 0, .17, -1.75]]);
+  else if (pz === 'cow' || pz === 'horse') d.ex = mkMount(pz);
+  if (d.ex) g.add(d.ex);
+}
+function dropAct(u) { const a = ACT[u]; if (!a) return; if (a.spr) kill(a.spr); if (a.stick && a.stick.parent) a.stick.parent.remove(a.stick); delete ACT[u]; }
+function applyFun(u, g, d) {
+  const T = performance.now(), a = ACT[u], pz = acts[u], h = d.hum;
+  if (d.pz !== pz) syncExtra(g, d, pz);
+  h.position.set(0, 0, 0); h.rotation.set(0, 0, 0); g.position.y = 0;
+  if (pz === 'sit') { h.position.y = -.42; d.legL.rotation.x = d.legR.rotation.x = -1.45; d.armL.rotation.x = d.armR.rotation.x = -.5; }
+  else if (pz === 'sleep') { h.rotation.x = -Math.PI / 2; h.position.y = .3; d.legL.rotation.x = d.legR.rotation.x = d.armL.rotation.x = d.armR.rotation.x = 0; }
+  else if ((pz === 'cow' || pz === 'horse') && d.ex) {
+    const off = d.ex.userData.off; g.position.y = off; d.ex.position.y = -off; d.legL.rotation.set(-.35, 0, -.5); d.legR.rotation.set(-.35, 0, .5); d.armL.rotation.x = d.armR.rotation.x = -.9;
+    d.ex.userData.legs.forEach((l, i) => l.rotation.x = Math.sin(d.ph * 1.2 + (i % 2 ? 0 : Math.PI)) * .6 * Math.min(1, d.sp / 3)); h.position.y = Math.sin(d.ph * 2) * .04;
+  } else if (pz === 'swim') { g.position.y = -.5; h.rotation.x = .9; d.armL.rotation.x = Math.sin(T / 200) * 1.6 - 2; d.armR.rotation.x = Math.sin(T / 200 + Math.PI) * 1.6 - 2; d.legL.rotation.x = Math.sin(T / 120) * .4; d.legR.rotation.x = -Math.sin(T / 120) * .4; }
+  if (!a) return;
+  const k = (T - a.t0) / 1000, PI = Math.PI;
+  switch (a.k) {
+    case 'swing': d.armR.rotation.x = -1.6 + Math.sin(Math.min(k, .5) * 12) * 1.4; break;
+    case 'stick': d.armR.rotation.x = k < .3 ? -2.8 * (k / .3) : -2.8 + 2.5 * Math.min(1, (k - .3) / .15); break;
+    case 'dizzy': { const f = Math.max(0, 1 - k / a.dur); h.rotation.y = 14 * k - 7 * k * k / a.dur; h.rotation.z = Math.sin(k * 9) * .25 * f; break; }
+    case 'fly': {
+      const D = a.D, e = D + a.lie; let rx;
+      if (k < D) { g.position.y = 4 * a.H * (k / D) * (1 - k / D); rx = -(PI / 2) * (k / D) - Math.sin(PI * k / D) * 2.2; d.armL.rotation.x = Math.sin(k * 20) * 1.3; d.armR.rotation.x = -Math.sin(k * 20) * 1.3; }
+      else if (k < e) rx = -PI / 2; else rx = -(PI / 2) * Math.max(0, 1 - (k - e) / .4);
+      h.rotation.x = rx; h.position.y = .22 * Math.min(1, rx / -(PI / 2)); break;
+    }
+    case 'kneel': h.position.y = -.5; d.legL.rotation.x = d.legR.rotation.x = 1.3; d.armR.rotation.x = -1.5; d.armL.rotation.x = -.3; break;
+    case 'throw': d.armR.rotation.x = k < .35 ? -2.6 * (k / .35) : -2.6 + 3 * Math.min(1, (k - .35) / .15); break;
+    case 'carry': { const l = Math.min(1, k / .5), ks = Math.max(0, k - .5); d.armL.rotation.x = d.armR.rotation.x = -1.4 * l; h.rotation.x = .25 * l; h.rotation.y = Math.min(ks, 3) / 3 * PI * 2; break; }
+    case 'carried': {
+      const q = av[a.with]; if (!q) break;
+      const l = Math.min(1, k / .5), sp = Math.min(Math.max(0, k - .5), 3) / 3 * PI * 2 + q.rotation.y;
+      g.position.set(q.position.x + Math.sin(sp) * .45, q.position.y + .95 * l, q.position.z + Math.cos(sp) * .45); g.rotation.y = sp + PI / 2;
+      h.rotation.x = -(PI / 2) * l; h.position.y = .25 * l; d.legL.rotation.x = d.legR.rotation.x = d.armL.rotation.x = d.armR.rotation.x = 0; break;
+    }
+  }
+}
+function funTick(dt) {
+  const T = performance.now();
+  for (const u in ACT) {
+    const a = ACT[u], k = (T - a.t0) / 1000;
+    if (k > a.dur) { dropAct(u); continue; }
+    if (u === uid && a.vx !== undefined && k < a.D) { const f = 2 * (1 - k / a.D) * dt; me.x += a.vx * f; me.z += a.vz * f; collide(.4); me.x = Math.max(-HALF, Math.min(HALF, me.x)); me.z = Math.max(-HALF, Math.min(HALF, me.z)); dirty = true; }
+  }
+  for (let i = FLO.length - 1; i >= 0; i--) { const f = FLO[i], k = (T - f.t0) / f.life; if (k >= 1) { f.g.remove(f.sp); FLO.splice(i, 1); continue; } f.sp.position.y = f.y0 + k * .8; f.sp.material.opacity = k > .7 ? (1 - k) / .3 : 1; }
+  for (let i = PRJ.length - 1; i >= 0; i--) {
+    const o = PRJ[i]; if (T - o.t0 > o.life) { scene.remove(o.sp); PRJ.splice(i, 1); continue; }
+    o.vy -= o.g * dt; o.sp.position.x += o.vx * dt; o.sp.position.y += o.vy * dt; o.sp.position.z += o.vz * dt;
+    if (o.bounce && o.sp.position.y < .15) { o.sp.position.y = .15; o.vy = Math.abs(o.vy) * .35; o.vx *= .6; o.vz *= .6; }
+  }
+  for (const u in acts) if ((acts[u] === 'sleep' || acts[u] === 'swim') && av[u] && ((zzT[u] = (zzT[u] || 0) - dt) < 0)) { zzT[u] = acts[u] === 'sleep' ? 1.8 : .9; flo(u, acts[u] === 'sleep' ? '💤' : '💦', 1.6, .8, acts[u] === 'sleep' ? 1.2 : 1.1); }
+  if (!room) return;
+  if (state.phase !== 'lobby' && acts[uid]) { if (acts[uid] === 'swim') leaveSwim(); setAct(null); }
+  if (acts[uid] === 'swim') { const dx = me.x - PX, dz = me.z - PZ, d = Math.hypot(dx, dz); if (d > PR - .6) { me.x = PX + dx / d * (PR - .6); me.z = PZ + dz / d * (PR - .6); } }
+}
+function setAct(k) {
+  if (!room) return; const r = ref(db, `rooms/${room}/act/${uid}`);
+  if (k) { onDisconnect(r).remove(); set(r, k); acts[uid] = k; } else { remove(r); delete acts[uid]; }
+  SWIM = k === 'swim';
+}
+function leaveSwim() { const dx = me.x - PX, dz = me.z - PZ, d = Math.hypot(dx, dz) || 1; me.x = PX + dx / d * (PR + 1.6); me.z = PZ + dz / d * (PR + 1.6); sendPos(true); }
+function toggleAct(k) {
+  if (acts[uid] === 'swim') leaveSwim();
+  if (acts[uid] === k) { setAct(null); return; }
+  if (k === 'swim') {
+    const dx = me.x - PX, dz = me.z - PZ, d = Math.hypot(dx, dz) || 1;
+    if (d > PR + 5) { toast('পুকুরের কাছে যান (পুকুর পূর্ব দিকে)'); return; }
+    me.x = PX + dx / d * (PR - 1.4); me.z = PZ + dz / d * (PR - 1.4); sendPos(true);
+  }
+  setAct(k);
+}
+function nearest(md) { let b = null, bd = md; for (const u in players) { if (u === uid) continue; const g = av[u]; if (!g || !g.visible) continue; const d = Math.hypot(g.position.x - me.x, g.position.z - me.z); if (d < bd) { bd = d; b = u; } } return b; }
+function fxSend(o) { if (!room) return; const r = push(ref(db, `rooms/${room}/fx`), Object.assign({ f: uid, t: now() }, o)); setTimeout(() => remove(r), 9000); }
+function doFun(k) {
+  if (!room) return;
+  if (state.phase !== 'lobby') { toast('এসব মজা অপেক্ষা-ঘরে (লবিতে) করা যায়'); return; }
+  if (ACT[uid] && ACT[uid].lock) return;
+  if (ACT[uid] && ACT[uid].k === 'kneel') { toast('উত্তরের অপেক্ষা করুন…'); return; }
+  if (k === 'love' || k === 'laugh' || k === 'like') return fxSend({ k: 'emo', e: { love: '❤️', laugh: '😂', like: '👍' }[k] });
+  if (k === 'hi') return fxSend({ k: 'hi', to: nearest(10) || '' });
+  if (k === 'slap' || k === 'lathi' || k === 'prop') {
+    const t = nearest(3.2); if (!t) { toast('আগে কারো কাছে যান (৩ মিটারের মধ্যে)'); return; }
+    if (ACT[t] && ACT[t].lock) { toast(nm(t) + ' এখন ব্যস্ত'); return; }
+    if (acts[uid]) { if (acts[uid] === 'swim') leaveSwim(); setAct(null); }
+    me.ry = Math.atan2(av[t].position.x - me.x, av[t].position.z - me.z); sendPos(true);
+    return fxSend({ k, to: t });
+  }
+  toggleAct(k);
+}
+function answer(ok) { clearTimeout(propT); $('propBox').hidden = true; if (!propFrom) return; const f = propFrom; propFrom = null; fxSend({ k: 'ans', f: uid, to: f, ok }); }
+function fxHandle(v) {
+  const f = v.f, to = v.to, A = (u, o) => { dropAct(u); return ACT[u] = Object.assign({ t0: performance.now() }, o); };
+  const hit = (u, from, o) => {
+    const a = A(u, Object.assign({ lock: u === uid }, o));
+    if (u === uid && o.dist && av[from]) { const dx = me.x - av[from].position.x, dz = me.z - av[from].position.z, l = Math.hypot(dx, dz) || 1; a.vx = dx / l * o.dist; a.vz = dz / l * o.dist; }
+  };
+  if (v.k === 'emo') flo(f, v.e, 2.2, 1.2);
+  else if (v.k === 'hi') { flo(f, 'Hi! 👋', 2.4, 1.3); if (to) { flo(to, '💌', 2.4, 1.1); if (to === uid) toast(nm(f) + ' আপনাকে Hi পাঠিয়েছে 💌'); } }
+  else if (v.k === 'slap') { A(f, { k: 'swing', dur: .8 }); setTimeout(() => { hit(to, f, { k: 'dizzy', dur: 2.8 }); flo(to, '💫', 2.8, 1.2, 2.3); snd(150); }, 280); }
+  else if (v.k === 'lathi') {
+    const a = A(f, { k: 'stick', dur: .9 }), d = av[f] && av[f].userData; if (d) { const m = mk([[.09, 1.3, .09, 0x7a4a24, 0, -.75, .1]]); d.armR.add(m); a.stick = m; }
+    setTimeout(() => { hit(to, f, { k: 'fly', D: 1, lie: 1.5, H: 1.8, dur: 2.9, dist: 5.5 }); flo(to, '💥', 1.5, 1.4, 2); snd(110, 'sawtooth', .2); }, 380);
+  } else if (v.k === 'prop') {
+    const a = A(f, { k: 'kneel', dur: 25 }); a.spr = flo(f, '💍', 25, 1, 1.4);
+    if (to === uid) { propFrom = f; $('propTxt').textContent = nm(f) + ' তোমাকে প্রপোজ করেছে 💍❤️ — রাজি?'; $('propBox').hidden = false; clearTimeout(propT); propT = setTimeout(() => answer(false), 20000); }
+    else if (f === uid) toast('প্রপোজ পাঠানো হয়েছে… উত্তরের অপেক্ষা 💌');
+    if (isHost() && isBot(to)) setTimeout(() => fxSend({ k: 'ans', f: to, to: f, ok: Math.random() < .5 }), 2200);
+  } else if (v.k === 'ans') {
+    dropAct(to);
+    if (v.ok) {
+      A(to, { k: 'carry', with: f, dur: 4.2, lock: to === uid }); A(f, { k: 'carried', with: to, dur: 4.2, lock: f === uid });
+      let n = 0; const iv = setInterval(() => { flo(n % 2 ? f : to, n % 3 ? '❤️' : '💋', 1.6, 1, 2.4); if (++n > 7) clearInterval(iv); }, 450);
+      if (f === uid || to === uid) toast('💖 ' + nm(to) + ' আর ' + nm(f) + ' — প্রেম হয়ে গেল!');
+    } else {
+      A(f, { k: 'throw', dur: 1.1 }); flo(f, '😠', 1.8, 1.1);
+      setTimeout(() => {
+        const s = av[f], t = av[to]; if (!s || !t) return;
+        const sx = s.position.x, sz = s.position.z, tx = t.position.x, tz = t.position.z, Tt = .5, G = 6;
+        prj('👞', sx, 1.5, sz, (tx - sx) / Tt, .5 * G * Tt, (tz - sz) / Tt, Tt, G, .9, false);
+        setTimeout(() => {
+          hit(to, f, { k: 'fly', D: .8, lie: 1.3, H: 1.1, dur: 2.6, dist: 3 }); flo(to, '🦷💥', 2.2, 1.3, 2.3); snd(140, 'square', .15);
+          prj('🦷', t.position.x, 1.7, t.position.z, (Math.random() - .5) * 2, 3.5, (Math.random() - .5) * 2, 3, 9, .55, true);
+          if (to === uid) toast('জুতা খেয়ে একটা দাঁত খুলে পড়ে গেল! 🦷');
+        }, 480);
+      }, 350);
+    }
+  }
+}
+function funReset() { for (const u in ACT) dropAct(u); acts = {}; SWIM = false; propFrom = null; clearTimeout(propT); for (const o of PRJ) scene.remove(o.sp); PRJ.length = 0; for (const f of FLO) f.g.remove(f.sp); FLO.length = 0; }
+$('funBtn').onclick = () => { $('chatBox').hidden = true; const b = $('funBox'); b.hidden = !b.hidden; };
+$('funBox').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (!b) return; $('funBox').hidden = true; doFun(b.dataset.f); });
+$('pYes').onclick = () => answer(true); $('pNo').onclick = () => answer(false);
+
 /* ---------- রেন্ডার লুপ ---------- */
 function resize() { renderer.setSize(innerWidth, innerHeight, false); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
@@ -1082,7 +1252,7 @@ renderer.setAnimationLoop(() => {
   if (step(dt)) dirty = true;
   botTick(dt);
   if (dirty && t - lastSend >= 100) sendPos(true);
-  if (L) updateLudo(dt); updateAvatars(dt); updateBalls(dt); updateParts(dt); proxCheck(t); hintUpdate(); shadowFollow();
+  funTick(dt); if (L) updateLudo(dt); updateAvatars(dt); updateBalls(dt); updateParts(dt); proxCheck(t); hintUpdate(); shadowFollow();
   { const T = t / 1000; // পানির ঢেউ, মেঘের ভেসে যাওয়া
     water.m.emissiveIntensity = .3 + Math.sin(T * 1.7) * .12;
     ripples.forEach((r, i) => { const k = ((T * .22 + i / 3) % 1); r.scale.set(PR * (.25 + k * .75), 1, PR * (.25 + k * .75)); r.material.opacity = .45 * (1 - k); });
