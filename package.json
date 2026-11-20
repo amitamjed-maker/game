@@ -11,7 +11,7 @@
     "@capacitor/cli": "^6.1.2",
     "@capacitor/core": "^6.1.2",
     "@capacitor/ios": "^6.1.2",
-    "electron": "^33.2.0",
+    "electron": "26.6.10",
     "electron-builder": "^25.1.8",
     "firebase": "^10.14.1",
     "three": "^0.160.0",
@@ -22,7 +22,7 @@
     "productName": "Lukochuri",
     "directories": { "output": "release" },
     "files": ["dist/**", "electron/**", "package.json"],
-    "mac": { "category": "public.app-category.games", "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }] },
+    "mac": { "category": "public.app-category.games", "identity": null, "minimumSystemVersion": "10.13.0", "target": [{ "target": "dmg", "arch": ["x64"] }, { "target": "zip", "arch": ["x64"] }] },
     "win": { "target": ["nsis"] }
   }
 }

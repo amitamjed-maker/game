@@ -6,6 +6,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="screen-orientation" content="landscape">
 <meta name="theme-color" content="#16301f">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&display=swap" rel="stylesheet">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>গ্রামের লুকোচুরি</title>
 <style>
@@ -19,8 +24,8 @@ button.y{background:linear-gradient(#ffd25e,#f2a51f);color:#2a1c00;box-shadow:0 
 button.y:active{box-shadow:0 1px 0 #a86e00,0 2px 6px #0006}
 button:disabled{opacity:.4}
 input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em;background:#0f2216;color:#fff;width:100%;user-select:text;-webkit-user-select:text}
-.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(10,25,15,.55),rgba(5,14,8,.85));backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);padding:16px;z-index:5}
-.card{background:linear-gradient(160deg,#1f4a2f,#122a1a);border:2px solid #f2b134;box-shadow:0 0 0 4px #f2b13422,0 18px 50px #000a;border-radius:22px;padding:20px;animation:pop .35s cubic-bezier(.2,1.3,.4,1);width:min(440px,100%);max-height:92vh;overflow:auto;display:grid;gap:12px;text-align:center;touch-action:pan-y}
+.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(10,25,15,.28),rgba(5,14,8,.66));padding:16px;z-index:5}
+.card{background:linear-gradient(160deg,rgba(34,82,52,.96),rgba(16,38,24,.96));border:2px solid #f2b134;box-shadow:0 0 0 4px #f2b13422,0 18px 50px #000a;border-radius:22px;padding:20px;animation:pop .35s cubic-bezier(.2,1.3,.4,1);width:min(440px,100%);max-height:92vh;overflow:auto;display:grid;gap:12px;text-align:center;touch-action:pan-y}
 .card h1{font-size:2.1rem;color:#ffd25e;line-height:1.2;text-shadow:0 3px 0 #a86e00,0 6px 14px #0008}
 @keyframes pop{from{transform:scale(.88);opacity:0}}
 .card small,#lobby small{opacity:.75}
@@ -32,7 +37,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #top button{pointer-events:auto}
 #ph{font-weight:700;background:linear-gradient(#1f4a2fe0,#122a1ae0);border:1px solid #ffffff30;padding:.4em 1em;border-radius:99px;box-shadow:0 3px 10px #0006}
 #sub{text-align:center;margin-top:6px;text-shadow:0 1px 3px #000}
-#lobby{position:fixed;left:10px;top:64px;width:min(270px,62vw);max-height:60vh;overflow:auto;background:linear-gradient(160deg,#1f4a2fee,#122a1aee);border:1px solid #ffffff30;box-shadow:0 8px 24px #0007;border-radius:16px;padding:12px;display:grid;gap:8px;z-index:4;touch-action:pan-y}
+#lobby{position:fixed;left:max(10px,env(safe-area-inset-left));top:58px;width:min(250px,42vw);max-height:calc(100% - 58px - 156px);overflow:auto;background:linear-gradient(160deg,#1f4a2fee,#122a1aee);border:1px solid #ffffff30;box-shadow:0 8px 24px #0007;border-radius:16px;padding:12px;display:grid;gap:8px;z-index:4;touch-action:pan-y}
 #joy{position:fixed;left:max(24px,env(safe-area-inset-left));bottom:max(22px,env(safe-area-inset-bottom));width:128px;height:128px;border-radius:50%;background:radial-gradient(#ffffff14,#ffffff30);border:2px solid #ffffff70;box-shadow:inset 0 0 18px #0005,0 4px 14px #0005;z-index:4}
 #knob{position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a3,#f2a51f);box-shadow:0 3px 8px #0008;transform:translate(-50%,-50%)}
 #catch{position:fixed;right:max(28px,env(safe-area-inset-right));bottom:30px;width:108px;height:108px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb347,#c47f00);font-size:1.35rem;z-index:4;box-shadow:0 5px 0 #7a4b00,0 8px 16px #0007}
@@ -62,6 +67,12 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #hint{position:fixed;top:92px;left:50%;transform:translateX(-50%);width:120px;text-align:center;z-index:6;pointer-events:none;background:#16301fd9;border:2px solid #f2b134;border-radius:16px;padding:6px}
 #arr{font-size:2.4rem;color:#ff5a4d;line-height:1}
 #hd{font-size:.9rem}
+#fs{position:fixed;top:56px;right:58px;width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
+#boot{position:fixed;inset:0;z-index:200;background:radial-gradient(ellipse at center,#2a6a40,#0f2216);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-weight:700;font-size:1.3rem;color:#ffd25e}
+#boot i{font-style:normal;font-size:3.4rem;animation:bob 1s ease-in-out infinite alternate}
+@keyframes bob{to{transform:translateY(-10px)}}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#42e06b;box-shadow:0 0 8px #42e06b;margin-right:6px}
+.foot{opacity:.55;font-size:.75rem}
 #mus{position:fixed;top:56px;right:10px;width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
 #skins{max-height:46vh;overflow:auto;touch-action:pan-y}
 #vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(ellipse at center,transparent 62%,rgba(0,20,5,.38) 100%)}
@@ -84,6 +95,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 </style>
 </head>
 <body>
+<div id="boot"><i>🏡</i>গ্রাম সাজানো হচ্ছে…</div>
 <canvas id="c"></canvas>
 <div id="vig"></div>
 <div id="rot"><i>📱</i>ফোনটা আড়াআড়ি করে ধরুন<small style="font-weight:400;opacity:.75">খেলাটা শুধু আড়াআড়ি (landscape) মোডে চলে</small></div>
@@ -97,6 +109,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 <div id="xh" hidden></div>
 <div id="hint" hidden><div id="arr">▲</div><div id="hd"></div></div>
 <button id="mus">🎵</button>
+<button id="fs" title="ফুল স্ক্রিন (F)">⛶</button>
 <button id="morph" class="y" hidden>রূপ</button>
 <div id="skins" hidden></div>
 <div id="sig" hidden>ডু!</div>
@@ -127,14 +140,15 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 <div id="end" class="ov" hidden></div>
 
 <div id="menu" class="ov"><div class="card">
-  <h1>গ্রামের লুকোচুরি</h1>
+  <h1>🏡 গ্রামের লুকোচুরি</h1>
   <p>৩ডি অনলাইন হাইড অ্যান্ড সিক</p>
   <input id="name" placeholder="আপনার নাম" maxlength="14">
-  <button id="create" class="y">নতুন রুম বানান</button>
+  <button id="create" class="y">🏠 নতুন রুম বানান</button>
   <div class="row"><input id="jc" placeholder="রুমের ঠিকানা" maxlength="5" style="text-transform:uppercase"><button id="join">ঢুকুন</button></div>
-  <button id="pub">অনলাইনে যে কারও সাথে খেলুন</button>
-  <b>এখন অনলাইনে: <span id="olN"></span></b>
+  <button id="pub">🌐 অনলাইনে যে কারও সাথে খেলুন</button>
+  <b><span class="dot"></span>এখন অনলাইনে: <span id="olN"></span></b>
   <div id="olMenu" class="ol"></div>
+  <small class="foot">Gaming with Tamjed</small>
 </div></div>
 
 <div id="inv" hidden></div>
