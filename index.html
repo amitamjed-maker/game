@@ -2,6 +2,10 @@
 <html lang="bn">
 <head>
 <meta charset="utf-8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="screen-orientation" content="landscape">
+<meta name="theme-color" content="#16301f">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>গ্রামের লুকোচুরি</title>
 <style>
@@ -9,13 +13,16 @@
 html,body{height:100%;overflow:hidden;background:#16301f;font-family:"Hind Siliguri","Noto Sans Bengali","Kalpurush",system-ui,sans-serif;color:#fff;user-select:none;-webkit-user-select:none;touch-action:none}
 [hidden]{display:none!important}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
-button{font:inherit;border:0;border-radius:12px;padding:.6em 1em;background:#2c5a3d;color:#fff;font-weight:600;cursor:pointer}
-button.y{background:#f2b134;color:#2a1c00}
+button{font:inherit;border:0;border-radius:14px;padding:.6em 1em;background:linear-gradient(#3b7a52,#2c5a3d);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 0 #173323,0 6px 12px #0006;transition:transform .08s,box-shadow .08s;-webkit-tap-highlight-color:transparent}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 #173323,0 2px 6px #0006}
+button.y{background:linear-gradient(#ffd25e,#f2a51f);color:#2a1c00;box-shadow:0 4px 0 #a86e00,0 6px 12px #0006}
+button.y:active{box-shadow:0 1px 0 #a86e00,0 2px 6px #0006}
 button:disabled{opacity:.4}
 input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em;background:#0f2216;color:#fff;width:100%;user-select:text;-webkit-user-select:text}
-.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,25,15,.72);padding:16px;z-index:5}
-.card{background:#16301f;border:2px solid #f2b134;border-radius:20px;padding:20px;width:min(440px,100%);max-height:92vh;overflow:auto;display:grid;gap:12px;text-align:center;touch-action:pan-y}
-.card h1{font-size:2.1rem;color:#f2b134;line-height:1.2}
+.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(10,25,15,.55),rgba(5,14,8,.85));backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);padding:16px;z-index:5}
+.card{background:linear-gradient(160deg,#1f4a2f,#122a1a);border:2px solid #f2b134;box-shadow:0 0 0 4px #f2b13422,0 18px 50px #000a;border-radius:22px;padding:20px;animation:pop .35s cubic-bezier(.2,1.3,.4,1);width:min(440px,100%);max-height:92vh;overflow:auto;display:grid;gap:12px;text-align:center;touch-action:pan-y}
+.card h1{font-size:2.1rem;color:#ffd25e;line-height:1.2;text-shadow:0 3px 0 #a86e00,0 6px 14px #0008}
+@keyframes pop{from{transform:scale(.88);opacity:0}}
 .card small,#lobby small{opacity:.75}
 .row{display:flex;gap:8px}
 .ol{display:grid;max-height:22vh;overflow:auto}
@@ -23,12 +30,12 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #hud{position:fixed;inset:0;pointer-events:none;z-index:3}
 #top{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:max(8px,env(safe-area-inset-top)) 10px 0}
 #top button{pointer-events:auto}
-#ph{font-weight:700;background:#16301fcc;padding:.4em .9em;border-radius:99px}
+#ph{font-weight:700;background:linear-gradient(#1f4a2fe0,#122a1ae0);border:1px solid #ffffff30;padding:.4em 1em;border-radius:99px;box-shadow:0 3px 10px #0006}
 #sub{text-align:center;margin-top:6px;text-shadow:0 1px 3px #000}
-#lobby{position:fixed;left:10px;top:64px;width:min(270px,62vw);max-height:48vh;overflow:auto;background:#16301fe6;border-radius:16px;padding:12px;display:grid;gap:8px;z-index:4;touch-action:pan-y}
-#joy{position:fixed;left:max(18px,env(safe-area-inset-left));bottom:max(24px,env(safe-area-inset-bottom));width:130px;height:130px;border-radius:50%;background:#ffffff26;border:2px solid #ffffff66;z-index:4}
-#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;background:#f2b134;transform:translate(-50%,-50%)}
-#catch{position:fixed;right:24px;bottom:34px;width:110px;height:110px;border-radius:50%;background:#c47f00;font-size:1.4rem;z-index:4}
+#lobby{position:fixed;left:10px;top:64px;width:min(270px,62vw);max-height:60vh;overflow:auto;background:linear-gradient(160deg,#1f4a2fee,#122a1aee);border:1px solid #ffffff30;box-shadow:0 8px 24px #0007;border-radius:16px;padding:12px;display:grid;gap:8px;z-index:4;touch-action:pan-y}
+#joy{position:fixed;left:max(24px,env(safe-area-inset-left));bottom:max(22px,env(safe-area-inset-bottom));width:128px;height:128px;border-radius:50%;background:radial-gradient(#ffffff14,#ffffff30);border:2px solid #ffffff70;box-shadow:inset 0 0 18px #0005,0 4px 14px #0005;z-index:4}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a3,#f2a51f);box-shadow:0 3px 8px #0008;transform:translate(-50%,-50%)}
+#catch{position:fixed;right:max(28px,env(safe-area-inset-right));bottom:30px;width:108px;height:108px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb347,#c47f00);font-size:1.35rem;z-index:4;box-shadow:0 5px 0 #7a4b00,0 8px 16px #0007}
 #catch.hot{background:#ff2d2d;animation:pulse .5s infinite alternate}
 @keyframes pulse{to{transform:scale(1.12)}}
 .pick{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -47,7 +54,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #toast{position:fixed;left:50%;bottom:22vh;transform:translateX(-50%);background:#000c;padding:.6em 1.1em;border-radius:99px;z-index:9;opacity:0;transition:opacity .2s;pointer-events:none;text-align:center}
 #toast.on{opacity:1}
 #inv{position:fixed;top:108px;right:10px;background:#16301f;border:2px solid #f2b134;border-radius:14px;padding:12px;z-index:8;display:grid;gap:8px;max-width:70vw}
-#morph{position:fixed;right:20px;bottom:34px;width:96px;height:96px;border-radius:50%;font-size:1.3rem;z-index:4}
+#morph{position:fixed;right:max(28px,env(safe-area-inset-right));bottom:30px;width:96px;height:96px;border-radius:50%;font-size:1.3rem;z-index:4}
 #skins{position:fixed;right:10px;bottom:140px;width:min(330px,92vw);display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#16301fee;padding:10px;border-radius:16px;z-index:6}
 #sig{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);font-size:3.4rem;font-weight:800;color:#f2b134;text-shadow:0 2px 12px #000;z-index:7;pointer-events:none}
 #xh{position:fixed;left:50%;top:50%;width:28px;height:28px;margin:-14px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 4px #000;z-index:4;pointer-events:none}
@@ -57,10 +64,29 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 #hd{font-size:.9rem}
 #mus{position:fixed;top:56px;right:10px;width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
 #skins{max-height:46vh;overflow:auto;touch-action:pan-y}
+#vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(ellipse at center,transparent 62%,rgba(0,20,5,.38) 100%)}
+#rot{position:fixed;inset:0;z-index:99;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#0f2216;text-align:center;font-size:1.4rem;font-weight:700;padding:24px}
+#rot i{font-style:normal;font-size:4.5rem;display:block;animation:rotp 1.8s ease-in-out infinite}
+@keyframes rotp{0%,25%{transform:rotate(0)}65%,100%{transform:rotate(-90deg)}}
+@media (orientation:portrait) and (pointer:coarse){#rot{display:flex}}
+@media (max-height:520px){
+  .card{padding:12px 16px;gap:8px;max-height:94vh;font-size:.92rem}
+  .card h1{font-size:1.5rem}
+  .pick button{font-size:1.2rem;padding:.6em}
+  #coinwrap{height:120px}
+  #joy{width:112px;height:112px;bottom:16px}
+  #catch{width:92px;height:92px;bottom:20px;font-size:1.15rem}
+  #morph{width:82px;height:82px;bottom:20px}
+  #skins{bottom:112px}
+  #hint{top:70px}
+  #inv{top:70px}
+}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="vig"></div>
+<div id="rot"><i>📱</i>ফোনটা আড়াআড়ি করে ধরুন<small style="font-weight:400;opacity:.75">খেলাটা শুধু আড়াআড়ি (landscape) মোডে চলে</small></div>
 
 <div id="hud" hidden>
   <div id="top"><button id="code"></button><div id="ph"></div><button id="leave">বের হন</button></div>

@@ -7,7 +7,7 @@ import { firebaseConfig } from './firebase-config.js';
 const $ = id => document.getElementById(id);
 const bn = n => String(n).replace(/\d/g, d => '০১২৩৪৫৬৭৮৯'[d]);
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
-const MAX = 18, HIDE_MS = 40000, SIG_MS = 20000, TOSS_MS = 12000, COIN_MS = 5500, END_MS = 8000, HALF = 52;
+const MAX = 18, HIDE_MS = 40000, SIG_MS = 20000, TOSS_MS = 12000, COIN_MS = 5500, END_MS = 8000, HALF = 38; // HALF = গ্রামের সীমানা (আগে ৫২ ছিল)
 const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 /* ---------- Firebase ---------- */
@@ -123,6 +123,17 @@ onValue(ref(db, 'invites/' + uid), s => {
   $('iy').onclick = async () => { if (!ensureName()) return; remove(ref(db, 'invites/' + uid)); await joinRoom(v.code); };
   $('in').onclick = () => remove(ref(db, 'invites/' + uid));
 });
+
+/* ---------- ফোনে সবসময় আড়াআড়ি (landscape) ---------- */
+function goLandscape() {
+  try {
+    const d = document.documentElement;
+    if (!document.fullscreenElement && d.requestFullscreen) { const r = d.requestFullscreen({ navigationUI: 'hide' }); r && r.catch && r.catch(() => {}); }
+    const o = screen.orientation; if (o && o.lock) { const r = o.lock('landscape'); r && r.catch && r.catch(() => {}); }
+  } catch (e) {}
+}
+goLandscape();
+addEventListener('pointerdown', () => { if (matchMedia('(pointer:coarse)').matches) goLandscape(); }, { once: true });
 
 /* ---------- Menu buttons ---------- */
 $('create').onclick = async () => { if (ensureName()) await createRoom(); };
@@ -251,12 +262,21 @@ setInterval(updateHud, 200);
 /* ---------- 3D world ---------- */
 const cv = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+const COARSE = matchMedia('(pointer:coarse)').matches; // ফোন/ট্যাবলেট
+renderer.setPixelRatio(Math.min(devicePixelRatio, COARSE ? 1.6 : 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = COARSE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xcfe9f5, 45, 125);
+scene.fog = new THREE.Fog(0xcfe9f5, 32, 100);
 const cam = new THREE.PerspectiveCamera(62, 1, .1, 240);
-scene.add(new THREE.HemisphereLight(0xe3f3ff, 0x6d8a4f, 1.05));
-const sun = new THREE.DirectionalLight(0xfff0d0, 1.15); sun.position.set(40, 60, 25); scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xdcefff, 0x6d8a4f, .95));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.3); sun.position.set(40, 60, 25); sun.castShadow = true;
+{ const S = COARSE ? 27 : 34, sc = sun.shadow.camera; sun.shadow.mapSize.set(COARSE ? 1024 : 2048, COARSE ? 1024 : 2048);
+  sc.left = -S; sc.right = S; sc.top = S; sc.bottom = -S; sc.near = 10; sc.far = 170; sun.shadow.bias = -.0004; sun.shadow.normalBias = .05; }
+scene.add(sun, sun.target);
+function shadowFollow() { // ছায়ার বাক্স খেলোয়াড়ের সাথে সাথে চলে
+  const q = .07, tx = room ? Math.round(me.x / q) * q : 0, tz = room ? Math.round(me.z / q) * q : 0;
+  sun.target.position.set(tx, 0, tz); sun.position.set(tx + 40, 60, tz + 25);
+}
 { // আকাশ
   const g = new THREE.SphereGeometry(180, 16, 10), pa = g.attributes.position, n = pa.count, a = new Float32Array(n * 3);
   const top = new THREE.Color(0x4a9de0), hor = new THREE.Color(0xcfe9f5), c = new THREE.Color();
@@ -265,6 +285,7 @@ const sun = new THREE.DirectionalLight(0xfff0d0, 1.15); sun.position.set(40, 60,
   scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false })));
 }
 /*WORLD_START*/
+const ripples = [], water = {};
 const G = {};
 const gb = (w, h, d) => G[`b${w},${h},${d}`] || (G[`b${w},${h},${d}`] = new THREE.BoxGeometry(w, h, d));
 const gc = (a, b, h, s = 8) => G[`c${a},${b},${h},${s}`] || (G[`c${a},${b},${h},${s}`] = new THREE.CylinderGeometry(a, b, h, s));
@@ -314,22 +335,24 @@ function putProp(type, x, z, ry = 0, sc = 1) {
   for (const q of PROPS[type].p) { const [px, py, pz] = q.p, s3 = q.s || [1, 1, 1]; addS(q.g, q.c, x + (px * c + pz * s) * sc, py * sc, z + (-px * s + pz * c) * sc, ry, s3[0] * sc, s3[1] * sc, s3[2] * sc); }
 }
 { // মাঠ
-  const g = new THREE.PlaneGeometry(170, 170, 34, 34).rotateX(-Math.PI / 2), pa = g.attributes.position, n = pa.count, a = new Float32Array(n * 3);
+  const g = new THREE.PlaneGeometry(104, 104, 26, 26).rotateX(-Math.PI / 2), pa = g.attributes.position, n = pa.count, a = new Float32Array(n * 3);
   const c1 = new THREE.Color(0x5c9a43), c2 = new THREE.Color(0x7db55a), c = new THREE.Color();
   for (let i = 0; i < n; i++) { const x = pa.getX(i), z = pa.getZ(i), v = (Math.sin(x * .21) + Math.sin(z * .17) + Math.sin((x + z) * .09) + Math.sin(x * .05) * Math.cos(z * .07)) / 4 * .5 + .5; c.copy(c1).lerp(c2, v); a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
   g.setAttribute('color', new THREE.BufferAttribute(a, 3)); SP.push(g);
 }
+addS(gcirc, 0x70a050, 0, -.05, 0, 0, 170, 1, 170); // সীমানার বাইরের সবুজ মাঠ (ফাঁকা দেখাবে না)
 // রাস্তা, উঠান, পুকুর, ধানক্ষেত, ঘাট, নৌকা
-addS(gp(), 0xc9a46a, 0, .02, 0, 0, 120, 1, 5); addS(gp(), 0xc9a46a, 0, .02, 0, 0, 5, 1, 120);
+addS(gp(), 0xc9a46a, 0, .02, 0, 0, 86, 1, 5); addS(gp(), 0xc9a46a, 0, .02, 0, 0, 5, 1, 86);
 addS(gcirc, 0xd2b27a, 0, .022, 0, 0, 9, 1, 9);
-addS(gcirc, 0xd8c58a, 26, .025, -22, 0, 9.9, 1, 9.9); addS(gcirc, 0x3f94c9, 26, .03, -22, 0, 9, 1, 9);
-addS(gp(), 0xaac85a, -40, .02, -38, 0, 16, 1, 12); addS(gp(), 0xaac85a, 40, .02, 38, 0, 16, 1, 12);
-for (let i = 0; i < 3; i++) addS(gb(.7, .1 * (3 - i), 3), 0xb0a690, 16.5 - i * .7, .05 * (3 - i), -22);
-addS(gb(3.2, .35, 1.1), WD, 30, .15, -27, .4);
+const PX = 23, PZ = -19, PR = 8; // পুকুর
+addS(gcirc, 0xd8c58a, PX, .025, PZ, 0, PR + .9, 1, PR + .9); // পুকুরের পানি আলাদা মেশ (নিচে), যাতে ঢেউ খেলে
+addS(gp(), 0xaac85a, -31, .02, -31, 0, 14, 1, 10); addS(gp(), 0xaac85a, 31, .02, 31, 0, 14, 1, 10);
+for (let i = 0; i < 3; i++) addS(gb(.7, .1 * (3 - i), 3), 0xb0a690, PX - PR + .5 - i * .7, .05 * (3 - i), PZ);
+addS(gb(3.2, .35, 1.1), WD, PX + 4, .15, PZ - 5, .4);
 
-const boxes = [], hbs = [], rooms = [], cols = [{ x: 26, z: -22, r: 10, h: 0 }];
-const resv = [{ x: 26, z: -22, r: 11 }, { x: -40, z: -38, r: 12 }, { x: 40, z: 38, r: 12 }, { x: 0, z: 0, r: 13 }];
-function spot(rad, gap, lim = 50, rc = 0) {
+const boxes = [], hbs = [], rooms = [], cols = [{ x: PX, z: PZ, r: PR + 1, h: 0 }];
+const resv = [{ x: PX, z: PZ, r: PR + 2 }, { x: -31, z: -31, r: 9 }, { x: 31, z: 31, r: 9 }, { x: 0, z: 0, r: 10 }];
+function spot(rad, gap, lim = 32, rc = 0) {
   for (let i = 0; i < 100; i++) {
     const x = (R() * 2 - 1) * lim, z = (R() * 2 - 1) * lim;
     if (rc ? (Math.abs(x) < rad || Math.abs(z) < rad) : (Math.abs(x) < 3.5 || Math.abs(z) < 3.5)) continue;
@@ -337,8 +360,8 @@ function spot(rad, gap, lim = 50, rc = 0) {
   }
   return null;
 }
-for (let i = 0; i < 8; i++) { addS(gp(), 0x95b44a, -40, .025, -43 + i * 1.5, 0, 15, 1, .3); addS(gp(), 0x95b44a, 40, .025, 33 + i * 1.5, 0, 15, 1, .3); }
-for (let i = 0; i < 8; i++) { const a = i * .8, r = 2 + (i % 3) * 1.8; addS(gcirc, 0x3f9d4a, 26 + Math.cos(a) * r, .035, -22 + Math.sin(a) * r, 0, .5, 1, .5); }
+for (let i = 0; i < 8; i++) { addS(gp(), 0x95b44a, -31, .025, -35.6 + i * 1.3, 0, 13, 1, .3); addS(gp(), 0x95b44a, 31, .025, 26.4 + i * 1.3, 0, 13, 1, .3); }
+for (let i = 0; i < 8; i++) { const a = i * .8, r = 2 + (i % 3) * 1.8; addS(gcirc, 0x3f9d4a, PX + Math.cos(a) * r, .035, PZ + Math.sin(a) * r, 0, .5, 1, .5); }
 function house(cx, cz, k, W, D, wc, rc) {
   const ry = k * Math.PI / 2, c = Math.round(Math.cos(ry)), s = Math.round(Math.sin(ry)), H = 2.8, odd = k & 1;
   const wp = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
@@ -372,35 +395,35 @@ function house(cx, cz, k, W, D, wc, rc) {
   rooms.push({ x1: cx - hx + .13, x2: cx + hx - .13, z1: cz - hz + .13, z2: cz + hz - .13 });
 }
 const wallCols = [0xe3cfa6, 0xd2a679, 0xb9c9a0, 0xe6d9c0, 0xc9d6dd], roofCols = [0x8fa1aa, 0xb68b45, 0x9a4f2f, 0x6e7f8a];
-for (let i = 0; i < 14; i++) {
-  const W = 11 + (R() < .5 ? 2 : 0), D = 9 + (R() < .5 ? 1 : 0), p = spot(Math.max(W, D) / 2 + 3.2, .5, 44, 1);
+for (let i = 0; i < 9; i++) {
+  const W = 11 + (R() < .5 ? 2 : 0), D = 9 + (R() < .5 ? 1 : 0), p = spot(Math.max(W, D) / 2 + 2.9, .3, 30, 1);
   if (p) house(p.x, p.z, R() * 4 | 0, W, D, wallCols[i % 5], roofCols[i % 4]);
 }
 const inHb = (x, z, m = 0) => hbs.some(h => x > h.x1 - m && x < h.x2 + m && z > h.z1 - m && z < h.z2 + m);
-for (let i = 0; i < 34; i++) { const p = spot(1.2, .8); if (p) { putProp('tree', p.x, p.z, R() * 6, .9 + R() * .5); cols.push({ x: p.x, z: p.z, r: .55, h: 5 }); } }
-for (let i = -56; i <= 56; i += 8) for (const [x, z] of [[i, 58], [i, -58], [58, i], [-58, i]]) putProp('tree', x, z, R() * 6, 1.2);
-for (let i = 0; i < 14; i++) { // নারকেল গাছ
+for (let i = 0; i < 16; i++) { const p = spot(1.2, .8); if (p) { putProp('tree', p.x, p.z, R() * 6, .9 + R() * .5); cols.push({ x: p.x, z: p.z, r: .55, h: 5 }); } }
+for (let i = -42; i <= 42; i += 6) for (const [x, z] of [[i, 43], [i, -43], [43, i], [-43, i]]) putProp('tree', x, z, R() * 6, 1.2);
+for (let i = 0; i < 7; i++) { // নারকেল গাছ
   const p = spot(1, .8); if (!p) continue; const h = 5 + R() * 1.5;
   addS(gc(.13, .22, h, 6), 0x8a6a45, p.x, h / 2, p.z);
   for (let j = 0; j < 7; j++) addS(leafG, 0x3d8f3a, p.x, h, p.z, j * .9 + R() * .3, 1, 1, 1, -.55);
   cols.push({ x: p.x, z: p.z, r: .4, h: 6 });
 }
-for (let i = 0; i < 6; i++) { // বাঁশঝাড়
+for (let i = 0; i < 3; i++) { // বাঁশঝাড়
   const p = spot(1.5, .8); if (!p) continue;
   for (let j = 0; j < 6; j++) { const a = j * 1.05, r = .5 * R(); addS(gc(.06, .07, 5.5, 5), 0x7fae3a, p.x + Math.cos(a) * r, 2.75, p.z + Math.sin(a) * r, 0, 1, 1, 1, (R() - .5) * .15); }
   cols.push({ x: p.x, z: p.z, r: .8, h: 5.5 });
 }
-for (let i = 0; i < 6; i++) { const p = spot(1.6, 1); if (p) { putProp('hay', p.x, p.z, R() * 6); cols.push({ x: p.x, z: p.z, r: 1.4, h: 2.6 }); } }
-for (let i = 0; i < 8; i++) { const p = spot(.8, .5), sc = .7 + R() * .8; if (p) { putProp('rock', p.x, p.z, R() * 6, sc); cols.push({ x: p.x, z: p.z, r: .7 * sc, h: .8 * sc }); } }
-for (let i = 0; i < 5; i++) { const p = spot(1.3, .8); if (p) { putProp('bench', p.x, p.z, R() * 6.28); cols.push({ x: p.x, z: p.z, r: .9, h: 1 }); } }
-for (let i = 0; i < 30; i++) { const p = spot(1.5, .3); if (p) putProp('bush', p.x, p.z, R() * 6, .9 + R() * .4); }
+for (let i = 0; i < 3; i++) { const p = spot(1.6, 1); if (p) { putProp('hay', p.x, p.z, R() * 6); cols.push({ x: p.x, z: p.z, r: 1.4, h: 2.6 }); } }
+for (let i = 0; i < 4; i++) { const p = spot(.8, .5), sc = .7 + R() * .8; if (p) { putProp('rock', p.x, p.z, R() * 6, sc); cols.push({ x: p.x, z: p.z, r: .7 * sc, h: .8 * sc }); } }
+for (let i = 0; i < 3; i++) { const p = spot(1.3, .8); if (p) { putProp('bench', p.x, p.z, R() * 6.28); cols.push({ x: p.x, z: p.z, r: .9, h: 1 }); } }
+for (let i = 0; i < 16; i++) { const p = spot(1.5, .3); if (p) putProp('bush', p.x, p.z, R() * 6, .9 + R() * .4); }
 for (const [x, z] of [[4.5, 18], [-4.5, -18], [4.5, -18], [-4.5, 18], [18, 4.5], [-18, -4.5], [18, -4.5], [-18, 4.5]]) { // রাস্তার বাতি
   addS(gc(.06, .08, 4, 6), 0x444444, x, 2, z); addS(gs(.22, 8, 6), 0xffe9a0, x, 4.1, z); cols.push({ x, z, r: .3, h: 4 });
 }
 const FLW = [0xff5a5a, 0xffd84a, 0xff9ad5, 0xffffff, 0xb07aff];
-for (let i = 0; i < 40; i++) { const p = spot(.5, .2); if (!p) continue; for (let j = 0; j < 5; j++) addS(gs(.1, 6, 5), FLW[(i + j) % 5], p.x + (R() - .5) * .7, .15, p.z + (R() - .5) * .7); }
+for (let i = 0; i < 20; i++) { const p = spot(.5, .2); if (!p) continue; for (let j = 0; j < 5; j++) addS(gs(.1, 6, 5), FLW[(i + j) % 5], p.x + (R() - .5) * .7, .15, p.z + (R() - .5) * .7); }
 const GRN = [0x4f8f3a, 0x6fae48, 0x3f7d33];
-for (let i = 0; i < 170; i++) { const x = (R() * 2 - 1) * 54, z = (R() * 2 - 1) * 54; if (inHb(x, z, 1) || Math.hypot(x - 26, z + 22) < 10.5 || Math.abs(x) < 3 || Math.abs(z) < 3) continue; addS(gk(.1, .55, 4), GRN[i % 3], x, .27, z, R() * 6); }
+for (let i = 0; i < 100; i++) { const x = (R() * 2 - 1) * 38, z = (R() * 2 - 1) * 38; if (inHb(x, z, 1) || Math.hypot(x - PX, z - PZ) < PR + 1.6 || Math.abs(x) < 3 || Math.abs(z) < 3) continue; addS(gk(.1, .55, 4), GRN[i % 3], x, .27, z, R() * 6); }
 { const w = spot(1.6, 1); if (w) { addS(gc(.9, 1, .7, 12), 0x9a9a9a, w.x, .35, w.z); addS(gc(.55, .55, .72, 12), 0x2a4a6a, w.x, .36, w.z); cols.push({ x: w.x, z: w.z, r: 1.1, h: .7 }); } }
 function solidAt(x, y, z) {
   if (y <= 0) return 1;
@@ -416,18 +439,33 @@ function rayWorld(ox, oy, oz, dx, dy, dz, max) {
 const worldGeo = mergeGeometries(SP, false);
 if (!worldGeo) throw new Error('world merge failed');
 const world = new THREE.Mesh(worldGeo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+world.receiveShadow = true; world.castShadow = true;
 scene.add(world); SP.length = 0;
+{ // পুকুরের পানি: আলাদা মেশ, ঢেউ আর ঝিলিক সহ
+  const wm = new THREE.MeshLambertMaterial({ color: 0x3f94c9, transparent: true, opacity: .88, emissive: 0x0b3a5a, emissiveIntensity: .35, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  const w = new THREE.Mesh(gcirc, wm); w.position.set(PX, .03, PZ); w.scale.set(PR, 1, PR); w.receiveShadow = true; scene.add(w);
+  for (let i = 0; i < 3; i++) { const r = new THREE.Mesh(new THREE.RingGeometry(.92, 1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .4, depthWrite: false })); r.position.set(PX, .05, PZ); scene.add(r); ripples.push(r); }
+  water.m = wm;
+}
 /*WORLD_END*/
-{ const sd = new THREE.Mesh(new THREE.SphereGeometry(9, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff3b0, fog: false })); sd.position.set(86.6, 129.9, 54.1); scene.add(sd); }
-{ const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, opacity: .9 });
-  for (let i = 0; i < 8; i++) { const m = new THREE.Mesh(gs(1), cm); m.scale.set(14 + i * 2, 3, 7); m.position.set(Math.cos(i * 2.4) * 110, 70 + i * 3, Math.sin(i * 2.4) * 110); scene.add(m); } }
+{ const sd = new THREE.Mesh(new THREE.SphereGeometry(9, 16, 10), new THREE.MeshBasicMaterial({ color: 0xfff3b0, fog: false })); sd.position.set(86.6, 129.9, 54.1); scene.add(sd);
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,244,190,.95)'); gr.addColorStop(.25, 'rgba(255,230,150,.45)'); gr.addColorStop(1, 'rgba(255,230,150,0)'); x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+  const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), fog: false, depthWrite: false, transparent: true })); gl.scale.set(95, 95, 1); gl.position.copy(sd.position); scene.add(gl); }
+const clouds = [];
+{ const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, opacity: .93 });
+  for (let i = 0; i < 9; i++) { // প্রতিটা মেঘ কয়েকটা গোলা জোড়া দিয়ে, আস্তে আস্তে ভেসে যায়
+    const g = new THREE.Group(), s = 1 + (i % 3) * .35;
+    for (let j = 0; j < 4; j++) { const m = new THREE.Mesh(gs(1, 12, 8), cm); m.scale.set((9 - j * 1.2) * s, (3.2 - j * .35) * s, (5.5 - j * .5) * s); m.position.set((j - 1.5) * 8 * s, (j % 2) * 1.6, (j % 2 ? 2 : -1.5)); g.add(m); }
+    g.position.set(Math.cos(i * 2.4) * 105, 72 + (i % 4) * 5, Math.sin(i * 2.4) * 105); g.userData.sp = 1.2 + (i % 3) * .6; scene.add(g); clouds.push(g);
+  } }
 
 /* ---------- মানুষ + রূপ ---------- */
 const matC = {}; const mat = c => matC[c] || (matC[c] = new THREE.MeshLambertMaterial({ color: c }));
 const SKINS = [0xf1c9a0, 0xd9a679, 0xb98056, 0x8d5a3b], PANTS = [0x2d3a5a, 0x3b3b3b, 0x4a5a3a];
 const hairG = new THREE.SphereGeometry(.215, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-const shadowG = new THREE.CircleGeometry(.6, 14).rotateX(-Math.PI / 2), shadowM = new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: .3, depthWrite: false });
-function buildProp(t) { const g = new THREE.Group(); for (const q of PROPS[t].p) { const m = new THREE.Mesh(q.g, mat(q.c)); m.position.set(...q.p); if (q.s) m.scale.set(...q.s); g.add(m); } return g; }
+const shadowG = new THREE.CircleGeometry(.6, 14).rotateX(-Math.PI / 2), shadowM = new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: .16, depthWrite: false });
+function buildProp(t) { const g = new THREE.Group(); for (const q of PROPS[t].p) { const m = new THREE.Mesh(q.g, mat(q.c)); m.position.set(...q.p); if (q.s) m.scale.set(...q.s); m.castShadow = true; g.add(m); } return g; }
 function label(txt) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64;
   const x = c.getContext('2d'); x.font = 'bold 30px "Hind Siliguri","Noto Sans Bengali",sans-serif'; x.textAlign = 'center';
@@ -453,6 +491,7 @@ function makeAvatar(u) {
   const lb = label(players[u]?.name || '?');
   g.add(hum, M(shadowG, shadowM, 0, .06, 0), lb);
   g.userData = { hum, shirt, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0 };
+  g.traverse(o => { if (o.isMesh && o.geometry !== shadowG) o.castShadow = true; });
   scene.add(g); return g;
 }
 function syncAvatars() {
@@ -460,6 +499,8 @@ function syncAvatars() {
   for (const u of Object.keys(av)) if (!players[u]) { scene.remove(av[u]); delete av[u]; }
 }
 function updateAvatars(dt) {
+  // ঘাড় ঘুরিয়ে পাশ থেকে দেখলে হালকা দুলুনি (শ্বাস)
+
   const p = state.phase, gameOn = p === 'hide' || p === 'seek';
   for (const u in av) {
     const g = av[u], d = g.userData, q = u === uid ? { x: me.x, z: me.z, r: me.ry } : pos[u];
@@ -472,6 +513,7 @@ function updateAvatars(dt) {
       g.rotation.y += Math.atan2(Math.sin(q.r - g.rotation.y), Math.cos(q.r - g.rotation.y)) * k;
     }
     const mv = Math.hypot(g.position.x - px, g.position.z - pz) / dt;
+    if (mv > 3.5 && !d.prop && (d.dust = (d.dust || 0) - dt) < 0) { d.dust = .14; emit(g.position.x, .1, g.position.z, (Math.random() - .5) * .6, .5, (Math.random() - .5) * .6, .45, dustM, .13, 0); }
     d.sp += (Math.min(mv, 7) - d.sp) * Math.min(1, dt * 10); d.ph += d.sp * dt * 2.2;
     const sw = Math.sin(d.ph) * Math.min(1, d.sp / 4) * .8;
     d.legL.rotation.x = sw; d.legR.rotation.x = -sw; d.armL.rotation.x = -sw; d.armR.rotation.x = sw;
@@ -530,6 +572,22 @@ skinBox.innerHTML = Object.entries(PROPS).map(([k, v]) => `<button data-s="${k}"
 skinBox.onclick = e => { const b = e.target.closest('[data-s]'); if (!b || !room) return; set(ref(db, `rooms/${room}/skin/${uid}`), b.dataset.s || null); skinBox.hidden = true; };
 $('morph').onclick = () => { skinBox.hidden = !skinBox.hidden; };
 
+/* ---------- কণা: ধুলো আর রঙের ছিটা ---------- */
+const parts = [], dustM = new THREE.MeshBasicMaterial({ color: 0xe6d5ac, transparent: true, opacity: .55, depthWrite: false });
+function emit(x, y, z, vx, vy, vz, life, mt, size, g) {
+  let o; if (parts.length >= 90) { o = parts.shift(); o.m.visible = true; } else { o = { m: new THREE.Mesh(gs(1, 6, 4), mt) }; scene.add(o.m); }
+  o.m.material = mt; o.m.position.set(x, y, z); o.size = size; o.vx = vx; o.vy = vy; o.vz = vz; o.life = o.max = life; o.g = g; o.m.scale.setScalar(size); parts.push(o);
+}
+function updateParts(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const o = parts[i]; o.life -= dt;
+    if (o.life <= 0) { scene.remove(o.m); parts.splice(i, 1); continue; }
+    o.vy -= o.g * dt; o.m.position.x += o.vx * dt; o.m.position.y = Math.max(.03, o.m.position.y + o.vy * dt); o.m.position.z += o.vz * dt;
+    o.m.scale.setScalar(o.size * (o.g ? o.life / o.max : 1 + (1 - o.life / o.max) * 1.2) * (o.g ? 1 : Math.min(1, o.life / o.max * 2.5)));
+  }
+}
+function paintBurst(x, y, z, c) { for (let i = 0; i < 7; i++) emit(x, y, z, (Math.random() - .5) * 4, Math.random() * 3.5, (Math.random() - .5) * 4, .5 + Math.random() * .3, ballMat(c), .07 + Math.random() * .05, 14); }
+
 /* ---------- বন্দুক: রঙের গুলি ---------- */
 const BALLC = [0xff3b30, 0x34c759, 0x0a84ff, 0xffd60a, 0xff2d95, 0xbf5af2, 0xff9f0a];
 const balls = [], splats = [], bm = {}, spm = {}, seenShots = new Set();
@@ -541,7 +599,7 @@ function spawnBall(v, mine) {
   balls.push({ m, x: v.x, y: v.y, z: v.z, dx: v.dx, dy: v.dy, dz: v.dz, c: v.c, mine: !!mine, life: 0 });
 }
 function splat(x, y, z, dx, dy, dz, c) {
-  let m;
+  let m; paintBurst(x, y, z, c);
   if (splats.length >= 90) m = splats.shift(); else { m = new THREE.Mesh(splatG, null); scene.add(m); }
   m.material = spm[c] || (spm[c] = new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   const s = .3 + Math.random() * .25; m.scale.set(s, s * (.7 + Math.random() * .6), 1);
@@ -701,10 +759,14 @@ renderer.setAnimationLoop(() => {
   if (room && state.phase === 'seek' && iAmSeeker()) { const ny = Math.atan2(-Math.sin(camYaw), -Math.cos(camYaw)); if (Math.abs(Math.atan2(Math.sin(ny - me.ry), Math.cos(ny - me.ry))) > .05) { me.ry = ny; dirty = true; } }
   if (step(dt)) dirty = true;
   if (dirty && t - lastSend >= 100) sendPos(true);
-  updateAvatars(dt); updateBalls(dt); proxCheck(t); hintUpdate();
+  updateAvatars(dt); updateBalls(dt); updateParts(dt); proxCheck(t); hintUpdate(); shadowFollow();
+  { const T = t / 1000; // পানির ঢেউ, মেঘের ভেসে যাওয়া
+    water.m.emissiveIntensity = .3 + Math.sin(T * 1.7) * .12;
+    ripples.forEach((r, i) => { const k = ((T * .22 + i / 3) % 1); r.scale.set(PR * (.25 + k * .75), 1, PR * (.25 + k * .75)); r.material.opacity = .45 * (1 - k); });
+    clouds.forEach(c => { c.position.x += c.userData.sp * dt; if (c.position.x > 130) c.position.x = -130; }); }
   if (room) {
     camPlace(dt);
     if (state.phase === 'seek' && state.seekStart) { const k = Math.floor((now() - state.seekStart) / SIG_MS); if (k > lastSig) { lastSig = k; playSignal(); } }
-  } else { const a = t / 7000; cam.position.set(Math.cos(a) * 44, 18, Math.sin(a) * 44); cam.lookAt(0, 2, 0); }
+  } else { const a = t / 7000; cam.position.set(Math.cos(a) * 36, 16, Math.sin(a) * 36); cam.lookAt(0, 2, 0); }
   renderer.render(scene, cam);
 });
