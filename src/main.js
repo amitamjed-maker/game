@@ -636,10 +636,10 @@ scene.add(world); SP.length = 0;
   gr.addColorStop(0, 'rgba(255,244,190,.95)'); gr.addColorStop(.25, 'rgba(255,230,150,.45)'); gr.addColorStop(1, 'rgba(255,230,150,0)'); x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
   const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), fog: false, depthWrite: false, transparent: true })); gl.scale.set(95, 95, 1); gl.position.copy(sd.position); scene.add(gl); }
 const clouds = [];
-{ const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, transparent: true, opacity: .93 });
+{ const cm = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9fb0c0, flatShading: true, fog: false, transparent: true, opacity: .95 });
   for (let i = 0; i < 9; i++) { // প্রতিটা মেঘ কয়েকটা গোলা জোড়া দিয়ে, আস্তে আস্তে ভেসে যায়
     const g = new THREE.Group(), s = 1 + (i % 3) * .35;
-    for (let j = 0; j < 4; j++) { const m = new THREE.Mesh(gs(1, 8, 6), cm); m.scale.set((9 - j * 1.2) * s, (3.2 - j * .35) * s, (5.5 - j * .5) * s); m.position.set((j - 1.5) * 8 * s, (j % 2) * 1.6, (j % 2 ? 2 : -1.5)); g.add(m); }
+    for (let j = 0; j < 4; j++) { const m = new THREE.Mesh(gi(1, 1), cm); m.scale.set((9 - j * 1.2) * s, (3.2 - j * .35) * s, (5.5 - j * .5) * s); m.position.set((j - 1.5) * 8 * s, (j % 2) * 1.6, (j % 2 ? 2 : -1.5)); g.add(m); }
     g.position.set(Math.cos(i * 2.4) * 105, 72 + (i % 4) * 5, Math.sin(i * 2.4) * 105); g.userData.sp = 1.2 + (i % 3) * .6; scene.add(g); clouds.push(g);
   } }
 
@@ -722,14 +722,15 @@ function makeAvatar(u) {
   if (F && hs === 1) { const t = M(gcap(.05, .34), hairM, 0, 1.45, -.27); t.rotation.x = .45; hum.add(t, M(gs(.06, 8, 6), tape, 0, 1.65, -.22)); }
   if (F && hs === 2 && !worker) hum.add(M(gs(.095, 10, 8), hairM, 0, 1.8, -.1));
   if (F && hs === 3) hum.add(M(gb(.46, .3, .1), hairM, 0, 1.47, -.17), M(gb(.07, .28, .24), hairM, -.2, 1.47, -.04), M(gb(.07, .28, .24), hairM, .2, 1.47, -.04));
+  { const head = new THREE.Group(); head.position.set(0, 1.4, 0); for (const o of hum.children.slice()) if (o.isMesh && o.position.y >= 1.41) { hum.remove(o); o.position.y -= 1.4; head.add(o); } hum.add(head); hum.userData.head = head; } // মাথা আলাদা গ্রুপ: চুমুর সময় ঘাড় ঘোরাতে
   hum.add(armL, armR, legL, legR);
   hum.scale.setScalar(F ? .95 : 1);
   const gun = new THREE.Group(), brl = M(gc(.035, .035, .4, 6), mat(0x888888), 0, .03, .6); brl.rotation.x = Math.PI / 2;
   gun.add(M(gb(.1, .16, .5), mat(0x333333), 0, 0, .2), brl, M(gs(.09, 8, 6), mat(0xff3b30), 0, .15, .1), M(gb(.07, .2, .09), mat(0x222222), 0, -.15, .05));
   gun.scale.setScalar(1.6); gun.position.set(.34, 1.0, .3); gun.visible = false; hum.add(gun);
   const lb = label(players[u]?.name || '?');
-  g.add(hum, M(shadowG, shadowM, 0, .06, 0), lb);
-  g.userData = { hum, shirt: shirtM, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0, lk: (players[u] && players[u].look) || '' };
+  const sh = M(shadowG, shadowM, 0, .06, 0); g.add(hum, sh, lb);
+  g.userData = { hum, head: hum.userData.head, sh, shirt: shirtM, gun, col, armL, armR, legL, legR, lb, prop: null, ptype: null, ph: 0, sp: 0, init: 0, lk: (players[u] && players[u].look) || '' };
   g.traverse(o => { if (o.isMesh && o.geometry !== shadowG && !o.userData.ns) o.castShadow = true; });
   scene.add(g); return g;
 }
@@ -756,7 +757,7 @@ function updateAvatars(dt) {
     d.sp += (Math.min(mv, 7) - d.sp) * Math.min(1, dt * 10); d.ph += d.sp * dt * 2.2;
     const sw = Math.sin(d.ph) * Math.min(1, d.sp / 4) * .8;
     d.legL.rotation.set(sw, 0, 0); d.legR.rotation.set(-sw, 0, 0); d.armL.rotation.set(-sw, 0, 0); d.armR.rotation.set(sw, 0, 0); // প্রতি ফ্রেমে পুরো পোজ রিসেট (ঘোড়া থেকে নামার পর পা বেঁকে থাকত)
-    { const ac = acts[u], cyc = Math.floor(d.ph / (ac === 'horse' ? Math.PI * 2 : Math.PI)); if (cyc !== d.cy) { d.cy = cyc; if (room && p !== 'ludo' && d.sp > 1.6) footFx(u, g, ac); } }
+    { const ac = acts[u], cyc = Math.floor((d.ph - Math.PI / 2) / (ac === 'horse' ? Math.PI * 2 : Math.PI)); if (cyc !== d.cy) { d.cy = cyc; if (room && p !== 'ludo' && d.sp > 1.6) footFx(u, g, ac); } }
     const sk = gameOn && u === state.seeker, ct = ((p === 'hide' || p === 'seek' || p === 'end') && !!caught[u]) || (p === 'ludo' && !!L && !!L.ps[u] && L.ps[u].out);
     const want = gameOn && !sk && !ct && PROPS[skin[u]] ? skin[u] : null;
     if (want !== d.ptype) { if (d.prop) { g.remove(d.prop); d.prop = null; } if (want) { d.prop = buildProp(want); g.add(d.prop); } d.ptype = want; }
@@ -970,7 +971,7 @@ function chime(pan, gain, f0) { // নরম ঘণ্টা (একঘেয়
 }
 const RN = () => Math.random();
 const sfx0 = {
-  step: (v, p) => { nz(.075, 1.7 * v, 'bandpass', 600 + RN() * 500, 1.1, p); nz(.04, .5 * v, 'highpass', 3500, .7, p, .01); thump(115 + RN() * 35, 55, .1, .26 * v, p); }, // পায়ের মচমচ + ধপ
+  step: (v, p) => { const b = 300 + RN() * 220; nz(.11, .5 * v, 'lowpass', b * 2.4, .4, p); nz(.06, .16 * v, 'bandpass', 1500 + RN() * 700, .7, p, .005); thump(100 + RN() * 25, 48, .09, .17 * v, p); }, // নরম পায়ের ধপ (মাটি/ঘাসে হাঁটা)
   splash: (v, p) => { nz(.34, 2.2 * v, 'bandpass', 1500 + RN() * 300, .6, p); nz(.22, 1.6 * v, 'lowpass', 700, .7, p, .05); for (let i = 0; i < 2; i++) thump(380 + RN() * 300, 900, .07, .1 * v, p, .08 + i * .08); }, // পানির ছপছপ
   hoof: (v, p) => { nz(.05, 2.4 * v, 'bandpass', 1100, 3.5, p); thump(190, 90, .09, .34 * v, p); nz(.05, 1.8 * v, 'bandpass', 900, 3.5, p, .11); thump(160, 80, .09, .24 * v, p, .11); }, // খুরের টগবগ
   cow: (v, p) => { thump(110, 52, .16, .42 * v, p); nz(.09, 1.2 * v, 'bandpass', 500, 1.5, p); }
@@ -1113,7 +1114,7 @@ function emojiSprite(t, x, y, z) { const c = document.createElement('canvas'); c
     const c = k === 'fin' ? 0xf2b134 : k === 'jail' ? 0x777b80 : k === 'snake' ? 0x3a9d4a : k === 'fire' ? 0xe0572a : (i % 2 ? 0xf1e3c0 : 0xe3c58a);
     const m = new THREE.Mesh(gc(1.5, 1.5, .25, 16), mat(c)); m.position.set(x, .12, z); ludoG.add(m);
     const ic = { jail: '⛓️', snake: '🐍', fire: '🔥', fin: '🏁' }[k] || (i === 0 ? '🚩' : ''); if (ic) ludoG.add(emojiSprite(ic, x, 1.9, z)); }
-  for (let i = 0; i < 14; i++) { const t = buildProp('tree'); t.position.set(-36 + i * 5.6, 0, (i % 2 ? -1 : 1) * (19 + (i % 3) * 2)); t.scale.setScalar(1.1 + (i % 3) * .15); ludoG.add(t); } }
+  for (let i = 0; i < 14; i++) { const t = buildProp('tree'); t.position.set(-36 + i * 5.6, 0, -(17 + (i % 3) * 2.5)); t.scale.setScalar(1.1 + (i % 3) * .15); ludoG.add(t); } }
 const FACE = [3, 4, 1, 6, 2, 5], FN = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const PP = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]], 5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]] };
 function pipTex(n) { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#fff8e8'; g.fillRect(0, 0, 128, 128); g.strokeStyle = '#d9c9a0'; g.lineWidth = 8; g.strokeRect(0, 0, 128, 128); g.fillStyle = n === 1 ? '#d62d2d' : '#222'; for (const [a, b] of PP[n]) { g.beginPath(); g.arc(a * 32, b * 32, n === 1 ? 20 : 11, 0, 7); g.fill(); } return new THREE.CanvasTexture(c); }
@@ -1211,7 +1212,7 @@ function noiseHit(dur, vol, hp) { // ছোট আওয়াজের ঝা�
 const sfx = {
   slap: () => { noiseHit(.09, .9, 1800); beep(0, .3, 260, 'square', .08); },
   thud: () => { noiseHit(.18, .7, 150); beep(0, .5, 90, 'sine', .25); },
-  kiss: () => { beep(0, .3, 1500, 'sine', .06); setTimeout(() => beep(0, .25, 1000, 'sine', .07), 90); },
+  kiss: () => { thump(800, 1800, .05, .1, 0); nz(.06, .45, 'highpass', 3200, .7); setTimeout(() => thump(1300, 650, .07, .09, 0), 75); }, // চুমুর 'চুক'
   hoof: () => { noiseHit(.05, .5, 500); setTimeout(() => noiseHit(.05, .4, 400), 110); }
 };
 function sprTex(t) {
@@ -1252,10 +1253,13 @@ function syncExtra(g, d, pz) {
   if (d.ex) g.add(d.ex);
 }
 function dropAct(u) { const a = ACT[u]; if (!a) return; if (a.spr) kill(a.spr); if (a.stick && a.stick.parent) a.stick.parent.remove(a.stick); delete ACT[u]; }
+const carryL = (k, dur) => { const s = x => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); }; return s(k / .55) * (1 - s((k - (dur - .45)) / .45)); }; // তোলা ০→১, শেষে নামানো ১→০
+const carrySpin = (k, dur) => { const x = Math.min(1, Math.max(0, (k - .55) / (dur - 1.1))); return x * x * (3 - 2 * x) * Math.PI * 2; }; // পুরো এক পাক
+const peck = k => { let m = 0; for (const t of [1.2, 2.3, 3.2]) { const x = (k - t) / .45; if (x > 0 && x < 1) m = Math.max(m, Math.sin(x * Math.PI)); } return m; }; // গালে ঠোঁট ছোঁয়ানো (৩ বার)
 function applyFun(u, g, d) {
   const T = performance.now(), a = ACT[u], pz = acts[u], h = d.hum;
   if (d.pz !== pz) syncExtra(g, d, pz);
-  h.position.set(0, 0, 0); h.rotation.set(0, 0, 0); g.position.y = 0;
+  h.position.set(0, 0, 0); h.rotation.set(0, 0, 0); g.position.y = 0; d.head.rotation.set(0, 0, 0); d.sh.visible = true;
   if (pz === 'sit' || pz === 'eat') { h.position.y = -.42; d.legL.rotation.x = d.legR.rotation.x = -1.45; d.armL.rotation.x = d.armR.rotation.x = -.5; if (pz === 'eat') d.armR.rotation.x = -1.3 - Math.abs(Math.sin(T / 350)) * .6; }
   else if (pz === 'dance') { const w = Math.sin(T / 160); h.position.y = Math.abs(w) * .18; h.rotation.y = w * .5; d.armL.rotation.x = -2.6 + w * .5; d.armR.rotation.x = -2.6 - w * .5; d.legL.rotation.x = w * .6; d.legR.rotation.x = -w * .6; }
   else if (pz === 'sleep') { h.rotation.x = -Math.PI / 2; h.position.y = .3; d.legL.rotation.x = d.legR.rotation.x = d.armL.rotation.x = d.armR.rotation.x = 0; }
@@ -1277,12 +1281,21 @@ function applyFun(u, g, d) {
     }
     case 'kneel': h.position.y = -.5; d.legL.rotation.x = d.legR.rotation.x = 1.3; d.armR.rotation.x = -1.5; d.armL.rotation.x = -.3; break;
     case 'throw': d.armR.rotation.x = k < .35 ? -2.6 * (k / .35) : -2.6 + 3 * Math.min(1, (k - .35) / .15); break;
-    case 'carry': { const l = Math.min(1, k / .5), ks = Math.max(0, k - .5); d.armL.rotation.x = d.armR.rotation.x = -1.4 * l; h.rotation.x = .25 * l; h.rotation.y = Math.min(ks, 3) / 3 * PI * 2; break; }
+    case 'carry': { // কোলে তুলে (bridal carry): দুই হাত সামনে, ঘুরে ঘুরে গালে চুমু
+      const l = carryL(k, a.dur), pk = peck(k);
+      d.armL.rotation.set(-1.0 * l, 0, .3 * l); d.armR.rotation.set(-1.0 * l, 0, -.3 * l);
+      h.rotation.set(-.1 * l, carrySpin(k, a.dur), 0); d.head.rotation.set(.5 * l + .2 * pk, -1.0 * l - .12 * pk, 0); break;
+    }
     case 'carried': {
       const q = av[a.with]; if (!q) break;
-      const l = Math.min(1, k / .5), sp = Math.min(Math.max(0, k - .5), 3) / 3 * PI * 2 + q.rotation.y;
-      g.position.set(q.position.x + Math.sin(sp) * .45, q.position.y + .95 * l, q.position.z + Math.cos(sp) * .45); g.rotation.y = sp + PI / 2;
-      h.rotation.x = -(PI / 2) * l; h.position.y = .25 * l; d.legL.rotation.x = d.legR.rotation.x = d.armL.rotation.x = d.armR.rotation.x = 0; break;
+      const l = carryL(k, a.dur), sc = h.scale.x, ang = PI / 2 * l, b = u === uid ? me : (pos[u] || { x: g.position.x, z: g.position.z, r: g.rotation.y });
+      const phi = q.rotation.y + carrySpin(k, a.dur), r0 = b.r !== undefined ? b.r : g.rotation.y, tgt = phi + PI / 2;
+      const ry = r0 + Math.atan2(Math.sin(tgt - r0), Math.cos(tgt - r0)) * l;
+      const cy = .85 * sc * Math.cos(ang), cz = -.85 * sc * Math.sin(ang); // শরীরের মাঝখান (পা-ই pivot, তাই মাঝখান ধরে বসাই — পা ধরে তোলা নয়)
+      const tx = b.x + (q.position.x + Math.sin(phi) * .45 - b.x) * l, tz = b.z + (q.position.z + Math.cos(phi) * .45 - b.z) * l, ty = q.position.y + .85 * sc * (1 - l) + 1.02 * l;
+      g.rotation.y = ry; g.position.set(tx - cz * Math.sin(ry), ty - cy, tz - cz * Math.cos(ry));
+      h.rotation.x = -ang; d.legL.rotation.x = d.legR.rotation.x = .3 * l; d.armL.rotation.x = .5 * l; d.armR.rotation.set(-1.3 * l, 0, .4 * l); // এক হাত ঝুলছে, আরেক হাত গলা জড়িয়ে
+      d.head.rotation.set(-.1 * l, .7 * l, 0); d.sh.visible = l < .05; break;
     }
   }
 }
@@ -1405,7 +1418,7 @@ function fxHandle(v) {
     if (v.ok) {
       { const q = av[f], w = av[to]; if (q && w) balloons((q.position.x + w.position.x) / 2, (q.position.z + w.position.z) / 2, 16); } clearTimeout(romT); romT = setTimeout(romStop, 9000);
       A(to, { k: 'carry', with: f, dur: 4.2, lock: to === uid }); A(f, { k: 'carried', with: to, dur: 4.2, lock: f === uid });
-      let n = 0; const iv = setInterval(() => { flo(n % 2 ? f : to, n % 3 ? '❤️' : '💋', 1.6, 1, 2.4); if (!(n % 3)) sfx.kiss(); if (++n > 7) clearInterval(iv); }, 450);
+      for (const ms of [1425, 2525, 3425]) setTimeout(() => { sfx.kiss(); flo(to, '💋', 1.4, 1, 2.1); flo(to, '❤️', 1.6, 1, 2.6); }, ms); // গালে চুমুর মুহূর্তে শব্দ ও 💋
       if (f === uid || to === uid) toast('💖 ' + nm(to) + ' আর ' + nm(f) + ' — প্রেম হয়ে গেল!');
     } else {
       romStop(); A(f, { k: 'throw', dur: 1.1 }); flo(f, '😠', 1.8, 1.1);

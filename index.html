@@ -71,8 +71,9 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 .lr{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 5px;border-radius:8px}.lr.on{background:#f2b13433;outline:1px solid #f2b134}.lr button{padding:.2em .5em;font-size:.8rem;box-shadow:none}
 #roll{position:fixed;right:max(28px,env(safe-area-inset-right));bottom:30px;width:128px;height:128px;border-radius:50%;font-size:1.2rem;z-index:4;background:radial-gradient(circle at 35% 30%,#ffe08a,#e0a21b);color:#2a1c00;box-shadow:0 5px 0 #7a4b00,0 8px 16px #0007}
 .hb{display:grid;gap:6px}.hb button{font-size:.88rem}
+@media (max-height:520px){#lobby{top:50px;width:min(300px,46vw);padding:8px;gap:5px;max-height:calc(100% - 50px - 128px);font-size:.82rem}#lobby button{padding:.3em .4em;font-size:.78rem}.hb{grid-template-columns:1fr 1fr;gap:4px}.hb #start{grid-column:1/-1}#pl{line-height:1.25;max-height:72px;overflow:auto}}
 @media (max-height:520px){#roll{width:100px;height:100px;bottom:20px;font-size:1rem}}
-#fs{position:fixed;top:56px;right:58px;width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
+#fs{position:fixed;top:max(11px,calc(env(safe-area-inset-top) + 3px));right:calc(max(10px,env(safe-area-inset-right)) + 140px);width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
 #boot{position:fixed;inset:0;z-index:200;background:radial-gradient(ellipse at 50% 45%,#2f7a48,#0f2216 75%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-weight:700;color:#ffd25e;transition:opacity .7s ease,transform .7s ease;overflow:hidden}
 #boot.out{opacity:0;transform:scale(1.08);pointer-events:none}
 #boot .rays{position:absolute;width:160vmax;height:160vmax;left:50%;top:45%;margin:-80vmax 0 0 -80vmax;background:repeating-conic-gradient(from 0deg,#ffd25e22 0 6deg,transparent 6deg 18deg);animation:spin 40s linear infinite;-webkit-mask:radial-gradient(circle,#000 0,transparent 55%);mask:radial-gradient(circle,#000 0,transparent 55%)}
@@ -92,7 +93,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 @keyframes spark{0%{transform:translateY(0) scale(.4);opacity:0}15%{opacity:1}100%{transform:translateY(-38vh) scale(1.2);opacity:0}}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#42e06b;box-shadow:0 0 8px #42e06b;margin-right:6px}
 .foot{opacity:.55;font-size:.75rem}
-#mus{position:fixed;top:56px;right:10px;width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
+#mus{position:fixed;top:max(11px,calc(env(safe-area-inset-top) + 3px));right:calc(max(10px,env(safe-area-inset-right)) + 92px);width:40px;height:40px;border-radius:50%;padding:0;z-index:8;background:#16301fdd}
 #skins{max-height:46vh;overflow:auto;touch-action:pan-y}
 #vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(ellipse at center,transparent 62%,rgba(0,20,5,.38) 100%)}
 #rot{position:fixed;inset:0;z-index:99;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#0f2216;text-align:center;font-size:1.4rem;font-weight:700;padding:24px}
@@ -147,7 +148,7 @@ input{font:inherit;border:2px solid #2c5a3d;border-radius:12px;padding:.6em .8em
 <div id="xh" hidden></div>
 <div id="hint" hidden><div id="arr">▲</div><div id="hd"></div></div>
 <button id="mus">🎵</button>
-<button id="fs" title="ফুল স্ক্রিন (F)">⛶</button>
+<button id="fs" title="ফুল স্ক্রিন (F)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
 <button id="morph" class="y" hidden>রূপ</button>
 <div id="skins" hidden></div>
 <div id="sig" hidden>ডু!</div>
